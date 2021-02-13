@@ -1100,8 +1100,11 @@ def XeCryptKeyVaultEncrypt(cpu_key: (bytes, bytearray), data: (bytes, bytearray)
 
 	assert XeCryptCpuKeyValid(cpu_key), "Invalid CPU key"
 	version = bytes([0x7, 0x12])
-	pack_into("<8s", data, 0x10, XeCryptRandom(8))
-	pack_into("<16s", data, 0, XeCryptHmacSha(cpu_key, data[0x10:], version)[:0x10])
+	# random nonce
+	pack_into("8s", data, 0, XeCryptRandom(0x10))
+	# random obfuscation key
+	pack_into("8s", data, 0x10, XeCryptRandom(8))
+	pack_into("16s", data, 0, XeCryptHmacSha(cpu_key, data[0x10:], version)[:0x10])
 	rc4_key = XeCryptHmacSha(cpu_key, data[:0x10])[:0x10]
 	XeCryptRc4EcbKey(rc4_key)
 	return bytes(data[:0x10]) + XeCryptRc4(data[0x10:])

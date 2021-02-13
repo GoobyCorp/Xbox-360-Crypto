@@ -9,6 +9,7 @@ from pathlib import Path
 from XeCrypt import fix_page_ecc
 
 def main() -> None:
+	"""
 	print("Setting KDNET settings in flash header...")
 	nand_path = r"Z:\Xbox 360\xeBuild_1.21_zero\zero_rgl.bin"
 	with open(nand_path, "r+b") as f:
@@ -41,7 +42,7 @@ def main() -> None:
 
 		f.seek(0x200)
 		f.write(spare)
-	return
+	"""
 
 	print("Compiling...")
 	patch_compile.main()

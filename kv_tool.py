@@ -1,31 +1,24 @@
 #!/usr/bin/env python3
 
+from enum import IntEnum
 from pathlib import Path
-from struct import pack_into, unpack_from
+from struct import pack_into
 
 from XeCrypt import XeCryptKeyVaultEncrypt
 
-CONSOLE_DEVKIT      = "0F0F0F0F0F0F0F0F"
-CONSOLE_PHAT_RETAIL = "0F0F0F0F0F0F0FF0"
-CONSOLE_SLIM_RETAIL = "0F0F0F0F0F0FF0F0"
-CONSOLE_TESTKIT     = "0F0F0F0F0F0FF00F"
+class ConsoleType(IntEnum):
+	RETAIL_PHAT = 0
+	RETAIL_SLIM = 1
+	TEST_KIT    = 2
+	DEVKIT      = 3
 
 def main() -> None:
 	cpu_key = bytes.fromhex("A55F6604990DD4736DE6A0E09FC576F1")
 	dvd_key = bytes.fromhex("C7F720142AB22847757398FEB4AECDD1")
-	console_type = CONSOLE_DEVKIT
+	console_type = ConsoleType.DEVKIT
 
 	print("CPU key: " + cpu_key.hex().upper())
 	print("DVD key: " + dvd_key.hex().upper())
-
-	# devkit
-	# fuseset 01: 0F0F0F0F0F0F0F0F
-	# retail
-	# fuseset 01: 0F0F0F0F0F0F0FF0
-	# testkit
-	# fuseset 01: 0F0F0F0F0F0FF00F
-	# slim retail (trinity/corona)
-	# fuseset 01: 0F0F0F0F0F0FF0F0
 
 	fuse_lines = [
 		"C0FFFFFFFFFFFFFF",
@@ -52,20 +45,31 @@ def main() -> None:
 	kv_data = XeCryptKeyVaultEncrypt(cpu_key, kv_data)
 
 	# update console type
-	pack_into("8s", fuse_data, 8, bytes.fromhex(console_type))
+	pack_into("6s", fuse_data, 8, bytes.fromhex("0F0F0F0F0F0F"))
+	if console_type == ConsoleType.TEST_KIT:
+		pack_into("2s", fuse_data, 0xE, b"\xF0\x0F")
+	elif console_type == ConsoleType.DEVKIT:
+		pack_into("2s", fuse_data, 0xE, b"\x0F\x0F")
+	elif console_type == ConsoleType.RETAIL_PHAT:
+		pack_into("2s", fuse_data, 0xE, b"\x0F\xF0")
+	elif console_type == ConsoleType.RETAIL_SLIM:
+		pack_into("2s", fuse_data, 0xE, b"\xF0\xF0")
+
 	# update CPU key in fuses
-	pack_into("8s", fuse_data, 0x18, cpu_key[:8])
-	pack_into("8s", fuse_data, 0x20, cpu_key[:8])
-	pack_into("8s", fuse_data, 0x28, cpu_key[8:8 + 8])
-	pack_into("8s", fuse_data, 0x30, cpu_key[8:8 + 8])
+	pack_into("8s8s8s8s", fuse_data, 0x18, cpu_key[:8], cpu_key[:8], cpu_key[8:16], cpu_key[8:16])
 
 	fuse_path.write_bytes(fuse_data)
 	kv_path = Path("Output/Zero/kv_enc.bin")
 	kv_path.write_bytes(kv_data)
 
-	print("\nFuses:")
+	print()
+	print("Fuses:")
 	for i in range(12):
 		print(fuse_data[i * 8:(i * 8) + 8].hex().upper())
+
+	print()
+	print(f"KV written to \"{str(kv_path.absolute())}\"!")
+	print(f"Fuses written to \"{str(fuse_path.absolute())}\"!")
 
 if __name__ == "__main__":
 	main()
