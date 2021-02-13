@@ -23,6 +23,7 @@ def main() -> None:
 	parser.add_argument("input", type=str, help="The payload executable to sign")
 	parser.add_argument("-o", "--ofile", type=str, help="The signed payload file")
 	parser.add_argument("-i", "--expansion-id", type=str, default="0x48565050", help="The expansion ID to use")
+	parser.add_argument("--no-encrypt", action="store_true", help="Disable expansion encryption")
 	args = parser.parse_args()
 
 	assert isfile(args.input), "The specified input file doesn't exist"
@@ -79,8 +80,9 @@ def main() -> None:
 	if exp_typ in [ExpansionMagic.HXPR, ExpansionMagic.HXPC]:
 		exp_iv = urandom(0x10)
 		pack_into("16s", exp_final, 0xC + 0x14, exp_iv)
-		#enc_exp = XeCryptAesCbc(XECRYPT_1BL_KEY, exp_iv, exp_final[0x30:])
-		#pack_into(f"<{len(enc_exp)}s", exp_final, 0x30, enc_exp)
+		if not args.no_encrypt:
+			enc_exp = XeCryptAesCbc(XECRYPT_1BL_KEY, exp_iv, exp_final[0x30:])
+			pack_into(f"<{len(enc_exp)}s", exp_final, 0x30, enc_exp)
 
 	# write it to a file
 	out_file = args.ofile if args.ofile else args.input
