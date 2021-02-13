@@ -1,18 +1,16 @@
 /fakeanim.bin
 /map.txt
 /xam_17559.rglp
+/bin/loaders/patch_loader.bin
 
 /.idea/
 /Research/
 /Data/
-/Keys/
 /Output/
 /RGLoader/
 /Build/
-/bin/
 /Shadowboots/
 /Dumps/
-/lib/
 /KV/
 /NAND/
 /SMC/
@@ -21,3 +19,4 @@
 /XCP/
 /xeBuild_1.21/
 /XeLL/
+/Keys/
