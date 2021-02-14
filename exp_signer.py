@@ -2,9 +2,10 @@
 
 from os import urandom
 from enum import IntEnum
-from struct import pack, pack_into
 from argparse import ArgumentParser
 from os.path import isfile, basename
+
+from bin2lang import lang_format
 
 from XeCrypt import *
 

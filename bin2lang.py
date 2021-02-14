@@ -3,8 +3,75 @@
 from os.path import isfile
 from argparse import ArgumentParser
 
-def lowercase(s: str) -> str:
-	return s.lower()
+lowercase = lambda s: s.lower()
+
+def lang_format(in_file: str, out_file: str, language: str, var_name: str, byte_count: int = 16):
+	with open(in_file, "rb") as fr:
+		with open(out_file, "w") as fw:
+			if language in ["python", "py"]:
+				print(f"{var_name} = bytearray([", file=fw)
+				lines = []
+				while True:
+					data = fr.read(byte_count)
+					if not data:
+						break
+					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
+				lines[-1] = lines[-1].rstrip(",")
+				[print(x, file=fw) for x in lines]
+				print("])", file=fw)
+			elif language in ["c", "c++", "cpp", "cplusplus"]:
+				print("#ifndef BYTE", file=fw)
+				print("typedef unsigned char BYTE", file=fw)
+				print("#endif", file=fw)
+				print(file=fw)
+				print(f"#ifndef __{var_name}__", file=fw)
+				print(f"#define __{var_name}__", file=fw)
+				print(f"BYTE {var_name}[] = {{", file=fw)
+				lines = []
+				while True:
+					data = fr.read(byte_count)
+					if not data:
+						break
+					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
+				lines[-1] = lines[-1].rstrip(",")
+				[print(x, file=fw) for x in lines]
+				print("};", file=fw)
+				print("#endif", file=fw)
+			elif language in ["csharp", "c#"]:
+				print(f"#region {var_name}", file=fw)
+				print(f"byte[] {var_name} = {{", file=fw)
+				lines = []
+				while True:
+					data = fr.read(byte_count)
+					if not data:
+						break
+					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
+				lines[-1] = lines[-1].rstrip(",")
+				[print(x, file=fw) for x in lines]
+				print("};", file=fw)
+				print("#endregion", file=fw)
+			elif language in ["php-new", "php"]:  # using fast arrays
+				print(f"${var_name} = [", file=fw)
+				lines = []
+				while True:
+					data = fr.read(byte_count)
+					if not data:
+						break
+					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
+				lines[-1] = lines[-1].rstrip(",")
+				[print(x, file=fw) for x in lines]
+				print("];", file=fw)
+			elif language == "php-old":  # using slow arrays
+				print(f"${var_name} = array(", file=fw)
+				lines = []
+				while True:
+					data = fr.read(byte_count)
+					if not data:
+						break
+					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
+				lines[-1] = lines[-1].rstrip(",")
+				[print(x, file=fw) for x in lines]
+				print(");", file=fw)
 
 def main() -> None:
 	parser = ArgumentParser(description="A script to make embedding binaries in code a breeze")
@@ -18,72 +85,7 @@ def main() -> None:
 	assert isfile(args.input), "The specified input file doesn't exist"
 	assert args.language in ["python", "py", "c", "c++", "cpp", "cplusplus", "csharp", "c#", "php", "php-old", "php-new"], "Invalid programming language specified"
 
-	with open(args.input, "rb") as fr:
-		with open(args.output, "w") as fw:
-			if args.language in ["python", "py"]:
-				print("%s = bytearray([" % (args.variable), file=fw)
-				lines = []
-				while True:
-					data = fr.read(args.bytes)
-					if not data:
-						break
-					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
-				lines[-1] = lines[-1].rstrip(",")
-				[print(x, file=fw) for x in lines]
-				print("])", file=fw)
-			elif args.language in ["c", "c++", "cpp", "cplusplus"]:
-				print("#ifndef BYTE", file=fw)
-				print("typedef unsigned char BYTE", file=fw)
-				print("#endif", file=fw)
-				print(file=fw)
-				print(f"#ifndef __{args.variable}__", file=fw)
-				print(f"#define __{args.variable}__", file=fw)
-				print(f"BYTE {args.variable}[] = {{", file=fw)
-				lines = []
-				while True:
-					data = fr.read(args.bytes)
-					if not data:
-						break
-					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
-				lines[-1] = lines[-1].rstrip(",")
-				[print(x, file=fw) for x in lines]
-				print("};", file=fw)
-				print("#endif", file=fw)
-			elif args.language in ["csharp", "c#"]:
-				print(f"#region {args.variable}", file=fw)
-				print(f"byte[] {args.variable} = {{", file=fw)
-				lines = []
-				while True:
-					data = fr.read(args.bytes)
-					if not data:
-						break
-					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
-				lines[-1] = lines[-1].rstrip(",")
-				[print(x, file=fw) for x in lines]
-				print("};", file=fw)
-				print("#endregion", file=fw)
-			elif args.language in ["php-new", "php"]:  # using fast arrays
-				print(f"${args.variable} = [", file=fw)
-				lines = []
-				while True:
-					data = fr.read(args.bytes)
-					if not data:
-						break
-					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
-				lines[-1] = lines[-1].rstrip(",")
-				[print(x, file=fw) for x in lines]
-				print("];", file=fw)
-			elif args.language == "php-old":  # using slow arrays
-				print(f"${args.variable} = array(", file=fw)
-				lines = []
-				while True:
-					data = fr.read(args.bytes)
-					if not data:
-						break
-					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
-				lines[-1] = lines[-1].rstrip(",")
-				[print(x, file=fw) for x in lines]
-				print(");", file=fw)
+	lang_format(args.input, args.output, args.language, args.variable, args.bytes)
 
 if __name__ == "__main__":
 	main()
