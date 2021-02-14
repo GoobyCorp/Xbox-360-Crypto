@@ -1,0 +1,3 @@
+[submodule "StreamIO"]
+	path = StreamIO
+	url = https://github.com/GoobyCorp/StreamIO
