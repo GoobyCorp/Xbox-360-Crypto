@@ -18,7 +18,7 @@ from math import log, gcd
 from struct import pack, unpack, pack_into, unpack_from, calcsize
 from ctypes import BigEndianStructure, c_ubyte, c_uint16, c_uint32, c_uint64
 
-# pip install numpy==1.20.1
+# pip install numpy
 import numpy as np
 
 # pip install pycryptodome

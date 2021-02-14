@@ -2,10 +2,9 @@
 
 from os import urandom
 from enum import IntEnum
+from os.path import isfile
+from struct import pack, pack_into
 from argparse import ArgumentParser
-from os.path import isfile, basename
-
-from bin2lang import lang_format
 
 from XeCrypt import *
 
@@ -17,29 +16,15 @@ class ExpansionMagic(IntEnum):
 	SIGM = 0x5349474D
 	SIGC = 0x53494743
 
-def main() -> None:
-	global EXPANSION_SIZE
-
-	parser = ArgumentParser(description="A script to sign HvxExpansionInstall payloads")
-	parser.add_argument("input", type=str, help="The payload executable to sign")
-	parser.add_argument("-o", "--ofile", type=str, help="The signed payload file")
-	parser.add_argument("-i", "--expansion-id", type=str, default="0x48565050", help="The expansion ID to use")
-	parser.add_argument("--no-encrypt", action="store_true", help="Disable expansion encryption")
-	args = parser.parse_args()
-
-	assert isfile(args.input), "The specified input file doesn't exist"
-	args.expansion_id = int(args.expansion_id, 16)
-
-	print(f"Signing \"{basename(args.input)}\"...")
-
+def sign_exp(in_file: str, out_file: str = None, exp_id: int = 0x48565050, encrypt: bool = True):
 	cpu_key = b""
 	hvx_prv = read_file("Keys/HVX_prv.bin")
-	payload = read_file(args.input)
-	exp_id = args.expansion_id
+	payload = read_file(in_file)
+	exp_id = exp_id
 	exp_typ = ExpansionMagic.HXPR
 
-	# pad payload
-	payload += (b"\x00" * (len(payload) % 16))
+	# pad payload to the 16 byte boundary
+	payload += (b"\x00" * (16 - (len(payload) % 16)))
 
 	# allocate 0x1000 bytes for the expansion
 	exp_final = bytearray(EXPANSION_SIZE)
@@ -79,18 +64,29 @@ def main() -> None:
 
 	# write the encrypted expansion
 	if exp_typ in [ExpansionMagic.HXPR, ExpansionMagic.HXPC]:
-		exp_iv = urandom(0x10)
-		pack_into("16s", exp_final, 0xC + 0x14, exp_iv)
-		if not args.no_encrypt:
+		if encrypt:
+			exp_iv = urandom(0x10)
+			pack_into("16s", exp_final, 0xC + 0x14, exp_iv)
 			enc_exp = XeCryptAesCbc(XECRYPT_1BL_KEY, exp_iv, exp_final[0x30:])
 			pack_into(f"<{len(enc_exp)}s", exp_final, 0x30, enc_exp)
 
 	# write it to a file
-	out_file = args.ofile if args.ofile else args.input
-	print(f"Outputting to \"{basename(out_file)}\"...")
-	write_file(out_file, exp_final)
+	write_file(out_file if out_file else in_file, exp_final)
 
-	print("Done!")
+def main() -> None:
+	global EXPANSION_SIZE
+
+	parser = ArgumentParser(description="A script to sign HvxExpansionInstall payloads")
+	parser.add_argument("input", type=str, help="The payload executable to sign")
+	parser.add_argument("-o", "--ofile", type=str, help="The signed payload file")
+	parser.add_argument("-i", "--expansion-id", type=str, default="0x48565050", help="The expansion ID to use")
+	parser.add_argument("--encrypt", action="store_true", help="Encrypt the expansion")
+	args = parser.parse_args()
+
+	assert isfile(args.input), "The specified input file doesn't exist"
+	args.expansion_id = int(args.expansion_id, 16)
+
+	sign_exp(args.input, args.ofile, args.expansion_id, args.encrypt)
 
 if __name__ == "__main__":
 	main()

@@ -37,13 +37,13 @@ def main() -> None:
 	# update console type
 	pack_into("6s", fuse_data, 8, bytes.fromhex("0F0F0F0F0F0F"))
 	if console_type == ConsoleType.TEST_KIT:
-		pack_into("2s", fuse_data, 0xE, b"\xF0\x0F")
+		pack_into("2s", fuse_data, 0xE, bytes.fromhex("F00F"))
 	elif console_type == ConsoleType.DEVKIT:
-		pack_into("2s", fuse_data, 0xE, b"\x0F\x0F")
+		pack_into("2s", fuse_data, 0xE, bytes.fromhex("0F0F"))
 	elif console_type == ConsoleType.RETAIL_PHAT:
-		pack_into("2s", fuse_data, 0xE, b"\x0F\xF0")
+		pack_into("2s", fuse_data, 0xE, bytes.fromhex("0FF0"))
 	elif console_type == ConsoleType.RETAIL_SLIM:
-		pack_into("2s", fuse_data, 0xE, b"\xF0\xF0")
+		pack_into("2s", fuse_data, 0xE, bytes.fromhex("F0F0"))
 
 	# update CPU key in fuses
 	pack_into("8s8s8s8s", fuse_data, 0x18, cpu_key[:8], cpu_key[:8], cpu_key[8:16], cpu_key[8:16])
