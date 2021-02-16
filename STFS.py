@@ -95,11 +95,33 @@ class PackageType(IntEnum):
 	PIRS = 1
 	LIVE = 2
 
+class ConsoleType(IntEnum):
+	RETAIL = 0
+	DEVKIT = 1
+
 def main() -> None:
-	with StreamIO("Research/su20076000_00000000", Endian.BIG) as package:
+	# Profile:
+	# Research/STFS/E00000F6485B4E18/FFFE07D1/00010000/E00000F6485B4E18
+	# Save:
+	# Research/STFS/E00000F6485B4E18/584108A9/00000001/beansave.dat
+	with StreamIO("Research/STFS/E00000F6485B4E18/FFFE07D1/00010000/E00000F6485B4E18", Endian.BIG) as package:
 		magic = package.read(4)
 		if magic == b"CON ":
-			pass
+			pub_key_len = package.read_uint16()
+			owner_console_id = package.read(5)
+			owner_part_num = package.read(0x14)
+			owner_console_type = ConsoleType(package.read_byte())
+			cert_date = package.read(8)
+			pub_key_exp = package.read_uint32()
+			pub_key_mod = package.read(0x80)
+			cert_sig = package.read(0x100)
+			package_sig = package.read(0x80)
+
+			print(pub_key_len)
+			print(owner_console_id.hex().upper())
+			print(owner_part_num)
+			print(owner_console_type)
+			print(cert_date)
 		elif magic == b"PIRS" or magic == b"LIVE":
 			package_sig = package.read(0x100)
 			package.seek(0x128, SEEK_CUR)
