@@ -98,7 +98,6 @@ class PackageType(IntEnum):
 def main() -> None:
 	with StreamIO("Research/su20076000_00000000", Endian.BIG) as package:
 		magic = package.read(4)
-		print(magic)
 		if magic == b"CON ":
 			pass
 		elif magic == b"PIRS" or magic == b"LIVE":
@@ -145,15 +144,10 @@ def main() -> None:
 			print("Profile ID:       " + profile_id.hex())
 			print("Device ID:        " + device_id.hex())
 
-			print("Display Name:     " + display_name.decode("utf8"))
-			print("Display Desc.:    " + display_description.decode("utf8"))
-			print("Publisher Name:   " + publisher_name.decode("utf8"))
-			print("Title Name:       " + title_name.decode("utf8"))
-
-			with open("thumbnail_image", "wb") as f:
-				f.write(thumbnail_image)
-			with open("title_thumbnail_image", "wb") as f:
-				f.write(title_thumbnail_image)
+			print("Display Name:     " + display_name.decode("UTF8"))
+			print("Display Desc.:    " + display_description.decode("UTF8"))
+			print("Publisher Name:   " + publisher_name.decode("UTF8"))
+			print("Title Name:       " + title_name.decode("UTF8"))
 		else:
 			print("Invalid package magic")
 

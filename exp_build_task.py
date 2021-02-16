@@ -1,8 +1,5 @@
 #!/usr/bin/env python3
 
-import subprocess
-from pathlib import Path
-
 from build_lib import assemble_patch
 from exp_signer import sign_exp
 from bin2lang import lang_format
