@@ -98,6 +98,7 @@ class PackageType(IntEnum):
 def main() -> None:
 	with StreamIO("Research/su20076000_00000000", Endian.BIG) as package:
 		magic = package.read(4)
+		print(magic)
 		if magic == b"CON ":
 			pass
 		elif magic == b"PIRS" or magic == b"LIVE":
