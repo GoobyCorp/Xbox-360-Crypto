@@ -36,9 +36,9 @@ struct EDATA {
 } edata;
 """
 
-def RC4_HMAC_encrypt(key: (bytes, bytearray), dec_data: (bytes, bytearray), msg_type: int) -> (bytes, bytearray):
+def HMAC_RC4_encrypt(key: (bytes, bytearray), dec_data: (bytes, bytearray), msg_type: int) -> (bytes, bytearray):
 	k1 = XeCryptHmacMd5(key, msg_type.to_bytes(4, "little"))
-	k2 = k1
+	k2 = k1  # no idea why this is done
 
 	confounder = bytes.fromhex("9B6BFACB5C488190")
 	checksum = XeCryptHmacMd5(k2, confounder + dec_data)
@@ -51,9 +51,9 @@ def RC4_HMAC_encrypt(key: (bytes, bytearray), dec_data: (bytes, bytearray), msg_
 	# refer to edata struct
 	return checksum + confounder + data
 
-def RC4_HMAC_decrypt(key: (bytes, bytearray), enc_data: (bytes, bytearray), msg_type: int) -> (bytes, bytearray):
+def HMAC_RC4_decrypt(key: (bytes, bytearray), enc_data: (bytes, bytearray), msg_type: int) -> (bytes, bytearray):
 	k1 = XeCryptHmacMd5(key, msg_type.to_bytes(4, "little"))
-	k2 = k1
+	k2 = k1  # no idea why this is done
 
 	# refer to edata struct
 	checksum = enc_data[:16]
@@ -114,8 +114,8 @@ def get_title_auth_data(key: (bytes, bytearray), data: (bytes, bytearray)) -> (b
 
 def get_xmacs_logon_key(stream) -> (bytes, bytearray):
 	rsa_prov = PKCS1_OAEP.new(XeCryptBnQwNeRsaKeyToRsaProv(XMACS_RSA_PUB_2048))
-	array_1 = urandom(16)  # get_seeded_random(get_tick_count(), 16)
-	array_2 = reverse(rsa_prov.encrypt(array_1))
+	rand_key = urandom(16)  # get_seeded_random(get_tick_count(), 16)
+	array_2 = reverse(rsa_prov.encrypt(rand_key))
 	array_3 = bytearray(read_file("bin/KV/XMACSREQ.bin"))
 	pack_into("<256s", array_3, 0x2C, array_2)
 	serial_num = stream.read_ubytes_at(0xB0, 12)
@@ -123,38 +123,38 @@ def get_xmacs_logon_key(stream) -> (bytes, bytearray):
 	console_prv_key = stream.read_ubytes_at(0x298, 0x1D0)
 	console_id = stream.read_ubytes_at(0x9CA, 5)
 
-	src_arr_2 = compute_client_name(console_id)
+	client_name = compute_client_name(console_id)
 	rsa_prov = PKCS1_v1_5.new(XeCryptBnQwNeRsaKeyToRsaProv(console_prv_key))
-	b0 = get_file_time().to_bytes(8, "big")
-	array_5 = generate_timestamp()
-	src_arr_3 = RC4_HMAC_encrypt(array_1, array_5, 1)
-	array_7 = reverse(rsa_prov.sign(SHA1.new(b0 + serial_num + XeCryptSha(array_1))))
-	pack_into("<8s", array_3, 0x12C, b0)
+	file_time = get_file_time().to_bytes(8, "big")
+	ts = generate_timestamp()
+	enc_ts = HMAC_RC4_encrypt(rand_key, ts, 1)
+	array_7 = reverse(rsa_prov.sign(SHA1.new(file_time + serial_num + XeCryptSha(rand_key))))
+	pack_into("<8s", array_3, 0x12C, file_time)
 	pack_into("<12s", array_3, 0x134, serial_num)
 	pack_into("<128s", array_3, 0x140, array_7)
 	pack_into("<424s", array_3, 0x1C0, console_cert)
-	pack_into("<52s", array_3, 0x3E0, src_arr_3)
-	pack_into("<15s", array_3, 0x430, src_arr_2)
+	pack_into("<52s", array_3, 0x3E0, enc_ts)
+	pack_into("<15s", array_3, 0x430, client_name)
 	sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 	sock.connect((XEAS_REALM, SERVER_PORT))
 	sock.send(array_3)
 	src_arr_4 = sock.recv(BUFF_SIZE)
 	sock.close()
 	array_8 = src_arr_4[53:53 + 108]
-	src_arr_5 = RC4_HMAC_decrypt(compute_kdc_nonce(array_1), array_8, 1203)
+	src_arr_5 = HMAC_RC4_decrypt(compute_kdc_nonce(rand_key), array_8, 1203)
 	return src_arr_5[76:76 + 16]
 
 def main() -> None:
 	global XMACS_RSA_PUB_2048
 
 	parser = ArgumentParser(description=__description__)
-	parser.add_argument("ifile", type=FileType("rb"), help="The KV file to test")
+	parser.add_argument("input", type=FileType("rb"), help="The KV file to test")
 	args = parser.parse_args()
 
 	XMACS_RSA_PUB_2048 = read_file("Keys/XMACS_pub.bin")
 	assert crc32(XMACS_RSA_PUB_2048) == 0xE4F01473, "Invalid XMACS public key"
 
-	with StreamIO(args.ifile, Endian.BIG) as sio:
+	with StreamIO(args.input, Endian.BIG) as sio:
 		xmacs_logon_key = get_xmacs_logon_key(sio)
 		console_id = sio.read_ubytes_at(0x9CA, 5)
 		src_arr_0 = XeCryptSha(sio.read_ubytes_at(0x9C8, 0xA8))
@@ -164,8 +164,8 @@ def main() -> None:
 	print("Creating Kerberos AS-REQ...")
 	pack_into("<24s", array_1, 258, array_2[:24])
 	pack_into("<20s", array_1, 36, src_arr_0[:20])
-	array_3 = generate_timestamp()
-	pack_into("<52s", array_1, 176, RC4_HMAC_encrypt(xmacs_logon_key, array_3, 1))
+	ts = generate_timestamp()
+	pack_into("<52s", array_1, 176, HMAC_RC4_encrypt(xmacs_logon_key, ts, 1))
 	with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
 		sock.connect((XEAS_REALM, SERVER_PORT))
 		sock.send(array_1)
@@ -177,8 +177,8 @@ def main() -> None:
 	array_6 = bytearray(read_file("bin/KV/apReq2.bin"))
 	pack_into("<24s", array_6, 286, array_2)
 	pack_into("<20s", array_6, 36, src_arr_0)
-	array_7 = generate_timestamp()
-	pack_into("<52s", array_6, 204, RC4_HMAC_encrypt(xmacs_logon_key, array_7, 1))
+	ts = generate_timestamp()
+	pack_into("<52s", array_6, 204, HMAC_RC4_encrypt(xmacs_logon_key, ts, 1))
 	pack_into("<16s", array_6, 68, array_5)
 	with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
 		sock.connect((XEAS_REALM, SERVER_PORT))
@@ -190,7 +190,7 @@ def main() -> None:
 	print("Creating Kerberos TGS-REQ...")
 	# write_file("bin/KV/APRESP.bin", array_8)
 	array_9 = array_8[-210:]
-	array_10 = RC4_HMAC_decrypt(xmacs_logon_key, array_9, 8)
+	array_10 = HMAC_RC4_decrypt(xmacs_logon_key, array_9, 8)
 	array_11 = array_10[27:27 + 16]
 	# write_file("bin/KV/test.bin", array_10)
 	print("Setting TGS ticket...")
@@ -202,10 +202,10 @@ def main() -> None:
 	s = datetime.utcnow().strftime("%Y%m%d%H%M%S") + "Z"
 	pack_into("<15s", array_14, 109, s.encode("ASCII"))
 	pack_into("<16s", array_14, 82, XeCryptMd5(array_13[954:954 + 75]))
-	pack_into("<153s", array_13, 799, RC4_HMAC_encrypt(array_11, array_14, 7))
+	pack_into("<153s", array_13, 799, HMAC_RC4_encrypt(array_11, array_14, 7))
 	key = compute_kdc_nonce(array_11)
 	array_15 = bytearray(read_file("bin/KV/servicereq.bin"))
-	pack_into("<150s", array_13, 55, RC4_HMAC_encrypt(key, array_15, 1201))
+	pack_into("<150s", array_13, 55, HMAC_RC4_encrypt(key, array_15, 1201))
 	array_16 = array_6[116:116 + 66]
 	pack_into("<82s", array_13, 221, get_title_auth_data(array_11, array_16))
 	print("Sending our TGS-REQ...")
@@ -217,7 +217,7 @@ def main() -> None:
 	# write_file("bin/KV/tgsres.bin", array_17)
 	print("Decrypting logon status...")
 	array_18 = array_17[50:50 + 84]
-	value = RC4_HMAC_decrypt(key, array_18, 1202)
+	value = HMAC_RC4_decrypt(key, array_18, 1202)
 	# array_19 = array_17[58:58 + 208]
 	# b0 = RC4_HMAC_decrypt(key, array_19, 1202)
 	# write_file("bin/KV/resp.bin", b0)
