@@ -224,30 +224,37 @@ _start:
 # ============================================================================
 #	HvxExpansionInstall sig check
 # ============================================================================
-	MAKEPATCH 0x00030BAC
+# skip beq
+    MAKEPATCH 0x00030BAC
 0:
-	nop
+    nop
 9:
-	MAKEPATCH 0x000206DC
+
+# make XeCryptBnQwBeSigVerify always return true
+#     MAKEPATCH 0x000206DC
+# 0:
+#     li       %r3,  1
+# 9:
+
+# skip XeCryptMemDiff_0
+    MAKEPATCH 0x00030C24
 0:
-	li       %r3,  1
+    li       %r3,  0
 9:
-	MAKEPATCH 0x00030C24
-0:
-	li       %r3,  0
-9:
-	MAKEPATCH 0x00030BEC
-0:
-	nop
-9:
+
+# disable expansion encryption
+#	 MAKEPATCH 0x00030BEC
+# 0:
+#     nop
+# 9:
 
 # ============================================================================
 #	HvxExpansionInstall hash check
 # ============================================================================
-	MAKEPATCH 0x00030C2C
-0:
-	nop
-9:
+#     MAKEPATCH 0x00030C2C
+# 0:
+#     nop
+# 9:
 
 #------------
 #=============================================================================

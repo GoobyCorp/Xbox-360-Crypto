@@ -73,10 +73,12 @@ def main() -> None:
 	se_data = bytearray(compress_se(se_data))
 	# magic, build, QFE, flags, and entry point
 	pack_into(">2s 3H I", se_data, 0, b"SE", 17559, 0x8000, 0, 0)
-	# append padding
-	se_data += (b"\x00" * (((len(se_data) + 0xF) & ~0xF) - len(se_data)))
+	# get length of SE without padding
+	se_len_nopad = len(se_data)
 	# set SE size
 	pack_into(">I", se_data, 0xC, len(se_data))
+	# append padding AFTER
+	se_data += (b"\x00" * (((se_len_nopad + 0xF) & ~0xF) - se_len_nopad))
 	# compute SE hash
 	se_hash = XeCryptRotSumSha(se_data[:0x10] + se_data[0x20:])
 	# patch SE hash into SD
@@ -86,10 +88,12 @@ def main() -> None:
 	# sd_data += b"\x00" * 0x400  # should be enough room for the loader
 	# sd_data = apply_patches(sd_data, Path("Output/Zero/xell.bin").read_bytes())
 
-	# append padding
-	sd_data += (b"\x00" * (((len(sd_data) + 0xF) & ~0xF) - len(sd_data)))
+	# get length of SD without padding
+	sd_len_nopad = len(sd_data)
 	# set SD size
 	pack_into(">I", sd_data, 0xC, len(sd_data))
+	# append padding AFTER
+	sd_data += (b"\x00" * (((sd_len_nopad + 0xF) & ~0xF) - sd_len_nopad))
 	# resign SD
 	sd_data = sign_sd_4bl(SD_PRV_KEY, XECRYPT_SD_SALT, sd_data)
 	# print(verify_sd_4bl(SD_PRV_KEY[:XECRYPT_RSAPUB_2048_SIZE], XECRYPT_SD_SALT, sd_data))
@@ -100,8 +104,8 @@ def main() -> None:
 	Path("Output/Zero/sd_17489.bin").write_bytes(sd_data)
 	Path("Output/Zero/se_17559.bin").write_bytes(se_data)
 	# output XeBuild checksums
-	print(f"rgl_jasperbl/sd_17489.bin,{crc32(sd_data):08x}")
-	print(f"rgl_jasperbl/se_17559.bin,{crc32(se_data):08x}")
+	print(f"rgl_jasperbl/sd_17489.bin,{crc32(sd_data[:sd_len_nopad]):08x}")
+	print(f"rgl_jasperbl/se_17559.bin,{crc32(se_data[:se_len_nopad]):08x}")
 
 if __name__ == "__main__":
 	main()

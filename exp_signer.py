@@ -3,11 +3,12 @@
 from os import urandom
 from enum import IntEnum
 from os.path import isfile
-from struct import pack, pack_into
+from struct import pack, pack_into, calcsize
 from argparse import ArgumentParser
 
 from XeCrypt import *
 
+EXPANSION_SALT = b"XBOX360EXP"
 EXPANSION_SIZE = 0x1000
 
 class ExpansionMagic(IntEnum):
@@ -24,15 +25,16 @@ def sign_exp(in_file: str, out_file: str = None, exp_id: int = 0x48565050, encry
 	exp_typ = ExpansionMagic.HXPR
 
 	# pad payload to the 16 byte boundary
-	payload += (b"\x00" * (16 - (len(payload) % 16)))
+	payload += (b"\x00" * (((len(payload) + 0xF) & ~0xF) - len(payload)))
 
 	# allocate 0x1000 bytes for the expansion
 	exp_final = bytearray(EXPANSION_SIZE)
 
 	# expansion header
-	exp_hdr = pack(">3I", exp_typ, 0, EXPANSION_SIZE)
+	# type, unpadded size, padded size
+	exp_hdr = pack(">3I", exp_typ, len(payload) + 0x40, EXPANSION_SIZE)
 	exp_hdr += (b"\x00" * 0x14)  # SHA hash
-	exp_hdr += (b"\x00" * 0x10)  # exp_iv  # AES feed
+	exp_hdr += (b"\x00" * 0x10)  # exp_iv
 	exp_hdr += (b"\x00" * 0x100)  # RSA sig of above
 
 	# expansion info
@@ -53,10 +55,16 @@ def sign_exp(in_file: str, out_file: str = None, exp_id: int = 0x48565050, encry
 	# write the expansion signature
 	if exp_typ in [ExpansionMagic.HXPR, ExpansionMagic.SIGM]:
 		b_hash = XeCryptRotSumSha(exp_final[:0x30])
+		sig = XeCryptBnQwBeSigCreate(b_hash, EXPANSION_SALT, hvx_prv)
+		sig = XeCryptBnQwNeRsaPrvCrypt(sig, hvx_prv)
 	elif exp_typ in [ExpansionMagic.HXPC, ExpansionMagic.SIGC]:
-		assert XeCryptCpuKeyValid(cpu_key), "A valid CPU is required for everything but SIGM/HXPR"
+		assert XeCryptCpuKeyValid(cpu_key), "A valid CPU is required for HXPC/SIGC"
 		b_hash = XeCryptHmacSha(cpu_key, exp_final[:0x30])
-	sig = XeKeysPkcs1Create(b_hash, hvx_prv)
+		sig = XeKeysPkcs1Create(b_hash, hvx_prv)
+	else:
+		raise Exception("Invalid expansion magic")
+
+	# write the expansion signature
 	pack_into(f"<{len(sig)}s", exp_final, 0x30, sig)
 
 	# strip padding
@@ -64,11 +72,11 @@ def sign_exp(in_file: str, out_file: str = None, exp_id: int = 0x48565050, encry
 
 	# write the encrypted expansion
 	if exp_typ in [ExpansionMagic.HXPR, ExpansionMagic.HXPC]:
-		if encrypt:
+		if encrypt:  # encrypt everything after the signature
 			exp_iv = urandom(0x10)
-			pack_into("16s", exp_final, 0xC + 0x14, exp_iv)
-			enc_exp = XeCryptAesCbc(XECRYPT_1BL_KEY, exp_iv, exp_final[0x30:])
-			pack_into(f"<{len(enc_exp)}s", exp_final, 0x30, enc_exp)
+			pack_into("16s", exp_final, 0x20, exp_iv)
+			enc_exp = XeCryptAesCbc(XECRYPT_1BL_KEY, exp_iv, exp_final[0x130:])
+			pack_into(f"<{len(enc_exp)}s", exp_final, 0x130, enc_exp)
 
 	# write it to a file
 	write_file(out_file if out_file else in_file, exp_final)
