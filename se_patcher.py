@@ -65,7 +65,9 @@ def main() -> None:
 	sd_data = bytearray(Path("Build/Mine/SD.bin").read_bytes())
 	se_data = bytearray(Path("Build/Mine/hypervisor.bin").read_bytes() + Path("Build/Mine/kernel.exe").read_bytes())
 
-	# pack_into(f"{0x4000}s", se_data, 0x162E0, Path("KV/banned.bin").read_bytes())
+	# @todo add the ability to swap out expansion public keys
+	# new_factory_key = b""
+	# pack_into(f"{len(new_factory_key)}s", se_data, 0x106C8, new_factory_key)
 
 	# apply patches
 	se_data = apply_patches(se_data, Path("Output/Zero/HVK.bin").read_bytes())

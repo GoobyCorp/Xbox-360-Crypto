@@ -4,10 +4,6 @@ import patch_compile
 import se_patcher
 import patch_checker
 
-from struct import pack
-from pathlib import Path
-from XeCrypt import fix_page_ecc
-
 def main() -> None:
 	"""
 	print("Setting KDNET settings in flash header...")
