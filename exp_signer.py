@@ -25,7 +25,9 @@ def sign_exp(in_file: str, out_file: str = None, exp_id: int = 0x48565050, encry
 	exp_typ = ExpansionMagic.HXPR
 
 	# pad payload to the 16 byte boundary
-	payload += (b"\x00" * (((len(payload) + 0xF) & ~0xF) - len(payload)))
+	payload_len_nopad = len(payload)
+	payload += (b"\x00" * (((payload_len_nopad + 0xF) & ~0xF) - payload_len_nopad))
+	payload_len_pad = len(payload)
 
 	# allocate 0x1000 bytes for the expansion
 	exp_final = bytearray(EXPANSION_SIZE)

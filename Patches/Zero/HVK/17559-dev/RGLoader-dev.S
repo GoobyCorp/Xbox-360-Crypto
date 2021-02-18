@@ -21,8 +21,8 @@ _start:
 .print "  --- Removing FCRT restriction ---"
 .include "RGLoader-nofcrt.S"
 
-.print "  --- Adding HvxPeekPoke ---"
-.include "RGLoader-HvxPeekPoke.S"
+# .print "  --- Adding HvxPeekPoke ---"
+# .include "RGLoader-HvxPeekPoke.S"
 
 .print "  --- Disabling Mem Protection ---"
 .include "RGLoader-memprot.S"
