@@ -56,7 +56,7 @@ A script to convert binaries into a format readable by a few programming languag
 A script that can generate valid CPU keys.
 
 ### [assembler.py](assembler.py)
-An interactive script that assembles PPC ASM to bytes in realtime
+An interactive script that assembles PPC ASM to bytes in realtime.
 
 ### [patch_build_task.py](patch_build_task.py)
 This script runs three scripts for building a zero fuse image:
