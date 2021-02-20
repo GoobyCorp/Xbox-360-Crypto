@@ -65,10 +65,6 @@ def main() -> None:
 	sd_data = bytearray(Path("Build/Mine/SD.bin").read_bytes())
 	se_data = bytearray(Path("Build/Mine/hypervisor.bin").read_bytes() + Path("Build/Mine/kernel.exe").read_bytes())
 
-	# @todo add the ability to swap out expansion public keys
-	# new_factory_key = b""
-	# pack_into(f"{len(new_factory_key)}s", se_data, 0x106C8, new_factory_key)
-
 	# apply patches
 	se_data = apply_patches(se_data, Path("Output/Zero/HVK.bin").read_bytes())
 	# compress SE
@@ -87,7 +83,7 @@ def main() -> None:
 	pack_into("<20s", sd_data, 0x24C, se_hash)
 
 	# add SD patches here
-	# sd_data += b"\x00" * 0x400  # should be enough room for the loader
+	# sd_data += b"\x00" * 0x100  # should be enough room for the loader
 	# sd_data = apply_patches(sd_data, Path("Output/Zero/xell.bin").read_bytes())
 
 	# get length of SD without padding
