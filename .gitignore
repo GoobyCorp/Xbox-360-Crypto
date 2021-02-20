@@ -1,6 +1,7 @@
-/fakeanim.bin
-/map.txt
-/xam_17559.rglp
+/*.bin
+/*.txt
+/*.rglp
+
 /bin/loaders/patch_loader.bin
 
 /.idea/
