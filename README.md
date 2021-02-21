@@ -22,7 +22,7 @@ A script to encrypt a KV and generate fuses for a zero fuse console.
 ### [nand_tool.py](nand_tool.py)
 A script that allows for modifying a NAND image for the Xbox 360, it automatically recalculates ECC bits and has address translation support.
 
-### [patch_parser.py](patch_parser.py)
+### [patch_parser.py](patch_dumper.py)
 A script that attempts to dump patch binaries to assembly.
 
 ### [xdk_extract.py](xdk_extract.py)
@@ -37,7 +37,7 @@ It's xval but in python, it checks to see if your console is possibly flagged.
 ### [xkelib_exports.py](xkelib_exports.py)
 This script was made to automate the SDK dumping process so that I can dynamically update exports for xkelib.
 
-### [xcp.py](xcp.py)
+### [xcp.py](xcp_dumper.py)
 A script made to decrypt XCP files delivered by the Xbox 360 CDN.
 
 ### [exp_signer.py](exp_signer.py)

@@ -7,10 +7,10 @@ from struct import unpack
 from capstone import *
 
 def main() -> None:
-	# md = Cs(CS_ARCH_PPC, CS_MODE_32 + CS_MODE_BIG_ENDIAN)
+	md = Cs(CS_ARCH_PPC, CS_MODE_32 + CS_MODE_BIG_ENDIAN)
 
 	with open("Output/decompiled_patches.asm", "w", newline="\n") as fw:
-		with open(r"C:\Users\John\Desktop\xeBuild_1.21_zero\17559\bin\patches_g2mjasper.bin", "rb") as fr:
+		with open(r"Output/Zero/HVK.bin", "rb") as fr:
 			fr.seek(0, 2)
 			patch_size = fr.tell()
 			fr.seek(0)
