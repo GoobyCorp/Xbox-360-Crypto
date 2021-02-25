@@ -16,13 +16,13 @@ def main() -> None:
 	while True:
 		line = input("ASM> ").strip()
 		# commands
-		if line.lower() in ["exit", "quit", "stop", "close"]:
+		if line.lower() in ["exit", "quit", "close"]:
 			break
-		elif line.lower() == "start":
+		elif line.lower() in ["start", "begin"]:
 			code_lines = []
 			capturing = True
 			continue
-		elif line.lower() == "end":
+		elif line.lower() in ["end", "stop"]:
 			combined_code = b""
 			for (asm, code_line) in code_lines:
 				combined_code += code_line
@@ -31,6 +31,9 @@ def main() -> None:
 				code = f"BYTE code = {{ {code} }}; // {asm}"
 				print(code)
 			print(combined_code.hex().upper())
+			code = ", ".join([f"0x{x:02X}" for x in combined_code])
+			code = f"BYTE code = {{ {code} }};"
+			print(code)
 			capturing = False
 			continue
 		elif line.lower() == "back":

@@ -9,6 +9,7 @@ PATCH_DIR = "Patches"
 def main() -> None:
 	assemble_patch("Patches/Zero/HVK/vfuses_17489.S", "Output/Zero/vfuses_17489.bin", PATCH_DIR)
 	assemble_patch("Patches/Zero/HVK/17559-dev/RGLoader-dev.S", "Output/Zero/RGL-zero.bin", PATCH_DIR)
+	assemble_patch("Patches/XAM/17559-dev/rglXam.S", "Output/xam_17559.rglp", PATCH_DIR)
 	assemble_patch("Patches/Zero/SD/sd_17489_patches.S", "Output/Zero/xell.bin", PATCH_DIR)
 
 	# assemble_patch("C://Users/John/Desktop/BlowFuselines.S", r"C://Users/John/Desktop/BlowFuselines.bin", PATCH_DIR)
