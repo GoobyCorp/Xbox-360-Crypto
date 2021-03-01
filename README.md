@@ -40,17 +40,11 @@ This script was made to automate the SDK dumping process so that I can dynamical
 ### [xcp.py](xcp_dumper.py)
 A script made to decrypt XCP files delivered by the Xbox 360 CDN.
 
-### [exp_signer.py](exp_signer.py)
-A script to sign HV expansions, this works on test kits using the 11775.3 recovery without modifications to the HV.
-
 ### [hvx_signer.py](hvx_signer.py)
 A script that can sign HvKeysExecute payloads.
 
 ### [xextool.py](xextool.py)
 My attempt at making an xextool entirely in python, it didn't go so well :cry:
-
-### [bin2lang.py](bin2lang.py)
-A script to convert binaries into a format readable by a few programming languages.
 
 ### [cpu_key.py](cpu_key.py)
 A script that can generate valid CPU keys.
@@ -63,3 +57,9 @@ This script runs three scripts for building a zero fuse image:
 * [patch_compile.py](patch_compile.py) - This script compiles patches for the zero fuse 4BL and 5BL.
 * [se_patcher.py](se_patcher.py) - This script patches the 4BL/5BL with the patches generated with the compiler.
 * [patch_checker.py](patch_checker.py) - This script checks the patches to make sure there's no address conflicts.
+
+### [exp_build_task.py](exp_build_task.py)
+This script builds the HV Peek/Poke expansion and outputs to a .h file, it uses:
+* [build_lib.py](build_lib.py) - This script contains assemble_patch which is useful for assembling PPC assembly.
+* [exp_signer.py](exp_signer.py) - A script to sign HV expansions, this works on test kits using the 11775.3 recovery without modifications to the HV.
+* [bin2lang.py](bin2lang.py) - A script to convert binaries into a format readable by a few programming languages.
