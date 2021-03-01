@@ -2,7 +2,7 @@
 
 from build_lib import assemble_patch
 from exp_signer import sign_exp
-from bin2lang import lang_format
+from bin2lang import *
 
 PATCH_DIR = "Patches"
 
@@ -12,7 +12,7 @@ def main() -> None:
 	print("Signing HVPP...")
 	sign_exp("Output/HVPP.bin", "Output/HVPP_signed.bin", 0x48565050, True)
 	print("Outputting HVPP...")
-	lang_format("Output/HVPP_signed.bin", "Output/HVPP.h", "cpp", "ExpansionData")
+	lang_format("Output/HVPP_signed.bin", "Output/HVPP.h", Language.CPLUSPLUS, "ExpansionData")
 	print("Done!")
 
 if __name__ == "__main__":

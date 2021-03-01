@@ -1,15 +1,26 @@
 #!/usr/bin/env python3
 
+from io import StringIO
+from enum import IntEnum
 from os.path import isfile
 from argparse import ArgumentParser
 
 lowercase = lambda s: s.lower()
 
-def lang_format(in_file: str, out_file: str, language: str, var_name: str, byte_count: int = 16):
+class Language(IntEnum):
+	PYTHON    = 0
+	C         = 1
+	CPLUSPLUS = 2
+	CSHARP    = 3
+	PHP       = 4
+	PHP_NEW   = 5
+	PHP_OLD   = 6
+
+def lang_format(in_file: str, out_file: str = None, language: Language = Language.CPLUSPLUS, var_name: str = "data", byte_count: int = 16) -> str:
 	with open(in_file, "rb") as fr:
-		with open(out_file, "w") as fw:
-			if language in ["python", "py"]:
-				print(f"{var_name} = bytearray([", file=fw)
+		with StringIO() as sio:
+			if language == Language.PYTHON:
+				print(f"{var_name} = bytearray([", file=sio)
 				lines = []
 				while True:
 					data = fr.read(byte_count)
@@ -17,16 +28,16 @@ def lang_format(in_file: str, out_file: str, language: str, var_name: str, byte_
 						break
 					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
 				lines[-1] = lines[-1].rstrip(",")
-				[print(x, file=fw) for x in lines]
-				print("])", file=fw)
-			elif language in ["c", "c++", "cpp", "cplusplus"]:
-				print("#ifndef BYTE", file=fw)
-				print("typedef unsigned char BYTE", file=fw)
-				print("#endif", file=fw)
-				print(file=fw)
-				print(f"#ifndef __{var_name}__", file=fw)
-				print(f"#define __{var_name}__", file=fw)
-				print(f"BYTE {var_name}[] = {{", file=fw)
+				[print(x, file=sio) for x in lines]
+				print("])", file=sio)
+			elif language in [Language.C, Language.CPLUSPLUS]:
+				print("#ifndef BYTE", file=sio)
+				print("typedef unsigned char BYTE", file=sio)
+				print("#endif", file=sio)
+				print(file=sio)
+				print(f"#ifndef __{var_name}__", file=sio)
+				print(f"#define __{var_name}__", file=sio)
+				print(f"BYTE {var_name}[] = {{", file=sio)
 				lines = []
 				while True:
 					data = fr.read(byte_count)
@@ -34,12 +45,12 @@ def lang_format(in_file: str, out_file: str, language: str, var_name: str, byte_
 						break
 					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
 				lines[-1] = lines[-1].rstrip(",")
-				[print(x, file=fw) for x in lines]
-				print("};", file=fw)
-				print("#endif", file=fw)
-			elif language in ["csharp", "c#"]:
-				print(f"#region {var_name}", file=fw)
-				print(f"byte[] {var_name} = {{", file=fw)
+				[print(x, file=sio) for x in lines]
+				print("};", file=sio)
+				print("#endif", file=sio)
+			elif language == Language.CSHARP:
+				print(f"#region {var_name}", file=sio)
+				print(f"byte[] {var_name} = {{", file=sio)
 				lines = []
 				while True:
 					data = fr.read(byte_count)
@@ -47,11 +58,11 @@ def lang_format(in_file: str, out_file: str, language: str, var_name: str, byte_
 						break
 					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
 				lines[-1] = lines[-1].rstrip(",")
-				[print(x, file=fw) for x in lines]
-				print("};", file=fw)
-				print("#endregion", file=fw)
-			elif language in ["php-new", "php"]:  # using fast arrays
-				print(f"${var_name} = [", file=fw)
+				[print(x, file=sio) for x in lines]
+				print("};", file=sio)
+				print("#endregion", file=sio)
+			elif language in [Language.PHP, Language.PHP_NEW]:  # using fast arrays
+				print(f"${var_name} = [", file=sio)
 				lines = []
 				while True:
 					data = fr.read(byte_count)
@@ -59,10 +70,10 @@ def lang_format(in_file: str, out_file: str, language: str, var_name: str, byte_
 						break
 					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
 				lines[-1] = lines[-1].rstrip(",")
-				[print(x, file=fw) for x in lines]
-				print("];", file=fw)
-			elif language == "php-old":  # using slow arrays
-				print(f"${var_name} = array(", file=fw)
+				[print(x, file=sio) for x in lines]
+				print("];", file=sio)
+			elif language == Language.PHP_OLD:  # using slow arrays
+				print(f"${var_name} = array(", file=sio)
 				lines = []
 				while True:
 					data = fr.read(byte_count)
@@ -70,8 +81,16 @@ def lang_format(in_file: str, out_file: str, language: str, var_name: str, byte_
 						break
 					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
 				lines[-1] = lines[-1].rstrip(",")
-				[print(x, file=fw) for x in lines]
-				print(");", file=fw)
+				[print(x, file=sio) for x in lines]
+				print(");", file=sio)
+
+			data = sio.getvalue()
+
+	if out_file is not None:
+		with open(out_file, "w") as f:
+			f.write(data)
+
+	return data
 
 def main() -> None:
 	parser = ArgumentParser(description="A script to make embedding binaries in code a breeze")
@@ -83,9 +102,27 @@ def main() -> None:
 	args = parser.parse_args()
 
 	assert isfile(args.input), "The specified input file doesn't exist"
-	assert args.language in ["python", "py", "c", "c++", "cpp", "cplusplus", "csharp", "c#", "php", "php-old", "php-new"], "Invalid programming language specified"
 
-	lang_format(args.input, args.output, args.language, args.variable, args.bytes)
+	lang: Language = None
+	if args.language in ["python", "py"]:
+		lang = Language.PYTHON
+	elif args.language == "c":
+		lang = Language.C
+	elif args.language in ["c++", "cpp", "cplusplus"]:
+		lang = Language.CPLUSPLUS
+	elif args.language in ["csharp", "cs", "c#"]:
+		lang = Language.CSHARP
+	elif args.language in ["php", "php-new"]:
+		lang = Language.PHP
+	elif args.language == "php-old":
+		lang = Language.PHP_OLD
+	else:
+		raise Exception("Invalid language specified!")
+
+	print(lang_format(args.input, args.output, lang, args.variable, args.bytes))
 
 if __name__ == "__main__":
 	main()
+
+# exports
+__all__ = ["Language", "lang_format"]

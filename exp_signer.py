@@ -3,13 +3,13 @@
 from os import urandom
 from enum import IntEnum
 from os.path import isfile
-from struct import pack, pack_into, calcsize
+from struct import pack, pack_into
 from argparse import ArgumentParser
 
 from XeCrypt import *
 
-EXPANSION_SALT = b"XBOX360EXP"
-EXPANSION_SIZE = 0x1000
+EXP_SALT = b"XBOX360EXP"
+EXP_SIZE = 0x1000
 
 class ExpansionMagic(IntEnum):
 	HXPR = 0x48585052
@@ -30,11 +30,11 @@ def sign_exp(in_file: str, out_file: str = None, exp_id: int = 0x48565050, encry
 	payload_len_pad = len(payload)
 
 	# allocate 0x1000 bytes for the expansion
-	exp_final = bytearray(EXPANSION_SIZE)
+	exp_final = bytearray(EXP_SIZE)
 
 	# expansion header
 	# type, unpadded size, padded size
-	exp_hdr = pack(">3I", exp_typ, len(payload) + 0x40, EXPANSION_SIZE)
+	exp_hdr = pack(">3I", exp_typ, len(payload) + 0x40, EXP_SIZE)
 	exp_hdr += (b"\x00" * 0x14)  # SHA hash
 	exp_hdr += (b"\x00" * 0x10)  # exp_iv
 	exp_hdr += (b"\x00" * 0x100)  # RSA sig of above
@@ -57,7 +57,7 @@ def sign_exp(in_file: str, out_file: str = None, exp_id: int = 0x48565050, encry
 	# write the expansion signature
 	if exp_typ in [ExpansionMagic.HXPR, ExpansionMagic.SIGM]:
 		b_hash = XeCryptRotSumSha(exp_final[:0x30])
-		sig = XeCryptBnQwBeSigCreate(b_hash, EXPANSION_SALT, hvx_prv)
+		sig = XeCryptBnQwBeSigCreate(b_hash, EXP_SALT, hvx_prv)
 		sig = XeCryptBnQwNeRsaPrvCrypt(sig, hvx_prv)
 	elif exp_typ in [ExpansionMagic.HXPC, ExpansionMagic.SIGC]:
 		assert XeCryptCpuKeyValid(cpu_key), "A valid CPU is required for HXPC/SIGC"
