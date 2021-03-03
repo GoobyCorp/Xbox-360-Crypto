@@ -4,6 +4,8 @@ A collection of tools I've written for the Xbox 360
 
 Most things work across Windows, macOS, and Linux but anything that requires packing or unpacking the CE/SE/5BL will only work on Windows.
 
+This tool suite is BYOK (Bring Your Own Keys)
+
 ### [XeCrypt.py](XeCrypt.py)
 A library that includes most of the Xbox 360's cryptographic library.
 

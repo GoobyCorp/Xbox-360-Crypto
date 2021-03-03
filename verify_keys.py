@@ -5,6 +5,7 @@
 from pathlib import Path
 from binascii import crc32
 
+# (crc32): (name)
 KEY_NAMES = {
 	0xD416B5E1: "1BL_pub",
 	0xDCC4B906: "HVX_prv",
