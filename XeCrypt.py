@@ -18,9 +18,6 @@ from math import log, gcd
 from struct import pack, unpack, pack_into, unpack_from, calcsize
 from ctypes import BigEndianStructure, c_ubyte, c_uint16, c_uint32, c_uint64
 
-# pip install numpy
-import numpy as np
-
 # pip install pycryptodome
 from Crypto.PublicKey import RSA
 from Crypto.Hash import MD5, SHA1, HMAC
@@ -40,6 +37,12 @@ XECRYPT_1BL_SALT = b"XBOX_ROM_B"
 XECRYPT_SC_SALT = b"XBOX_ROM_3"
 XECRYPT_SD_SALT = b"XBOX_ROM_4"
 BUFFER_SIZE = 4096
+
+UINT8_MASK   = 0xFF
+UINT16_MASK  = 0xFFFF
+UINT32_MASK  = 0xFFFFFFFF
+UINT64_MASK  = 0xFFFFFFFFFFFFFFFF
+UINT128_MASK = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
 
 # public key sizes
 XECRYPT_RSAPUB_1024_SIZE = 0x90
@@ -581,26 +584,26 @@ def XeCryptPrintRsa(key: (bytes, bytearray, XECRYPT_RSAPUB_1024, XECRYPT_RSAPUB_
 def XeCryptRotSum(data: (bytes, bytearray)) -> bytes:
 	cqwInp = len(data) // 8
 	if cqwInp != 0:
-		qw1 = np.uint64(0)
-		qw2 = np.uint64(0)
-		qw3 = np.uint64(0)
-		qw4 = np.uint64(0)
+		qw1 = 0
+		qw2 = 0
+		qw3 = 0
+		qw4 = 0
 		for i in range(cqwInp):
-			tqw1 = np.uint64(unpack_from(">Q", data, i * 8)[0])
-			tqw2 = tqw1 + qw2
-			if tqw2 < tqw1:
-				qw2 = np.uint64(1)
-			else:
-				qw2 = np.uint64(0)
-			qw4 = (~tqw1) + qw4 + np.uint8(1)
-			qw1 = qw2 + qw1
-			qw2 = ((tqw2 << np.uint8(29)) & np.uint64(0xFFFFFFFFE0000000)) | ((tqw2 >> np.uint8(35)) & np.uint64(0x1FFFFFFF))
-			if qw4 > tqw1:
-				tqw1 = np.uint64(1)
-			else:
-				tqw1 = np.uint64(0)
-			qw3 = (~tqw1) + qw3 + np.uint8(1)
-			qw4 = ((qw4 << np.uint8(31)) &  np.uint64(0xFFFFFFFF80000000)) | ((qw4 >> np.uint8(33)) & np.uint64(0x7FFFFFFF))
+			tqw = int.from_bytes(data[(i * 8):(i * 8) + 8], "big")
+
+			qw2 += tqw
+			qw2 &= UINT64_MASK
+			qw4 -= tqw
+			qw4 &= UINT64_MASK
+
+			qw1 += (qw2 < tqw)
+			qw2 = (qw2 * 0x20000000) | (qw2 >> 0x23)
+			qw2 &= UINT64_MASK
+
+			qw3 -= (tqw < qw4)
+			qw3 &= UINT64_MASK
+			qw4 = (qw4 * 0x80000000) | (qw4 >> 0x21)
+			qw4 &= UINT64_MASK
 		return pack(">4Q", qw1, qw2, qw3, qw4)
 
 def XeCryptRotSumSha(data: (bytes, bytearray)) -> bytes:
@@ -613,74 +616,82 @@ def XeCryptRotSumSha(data: (bytes, bytearray)) -> bytes:
 	return hasher.digest()
 
 # RSA
-def XeCryptMulHdu(val1: int, val2: int) -> (list, tuple):
-	val1 &= 0xFFFFFFFFFFFFFFFF
-	val2 &= 0xFFFFFFFFFFFFFFFF
+def XeCryptMulHdu(val1: int, val2: int) -> tuple:
+	val1 &= UINT64_MASK
+	val2 &= UINT64_MASK
 	a = val1 * val2
-	a &= 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
-	hi_val = (a >> 64) & 0xFFFFFFFFFFFFFFFF
-	lo_val = a & 0xFFFFFFFFFFFFFFFF
-	return (np.uint64(hi_val), np.uint64(lo_val))
+	a &= UINT128_MASK
+	hi_val = (a >> 64) & UINT64_MASK
+	lo_val = a & UINT64_MASK
+	return (hi_val, lo_val)
 
 def XeCryptBnQwNeModMul(qwA: (bytes, bytearray), qwB: (bytes, bytearray), qwMI: int, qwM: (bytes, bytearray), cqw: int) -> bytes:
-	qwA_arr = array("Q", unpack(">%sQ" % (cqw), qwA))
-	qwB_arr = array("Q", unpack(">%sQ" % (cqw), qwB))
-	qwM_arr = array("Q", unpack(">%sQ" % (cqw), qwM))
+	qwA_arr = array("Q", unpack(f">{cqw}Q", qwA))
+	qwB_arr = array("Q", unpack(f">{cqw}Q", qwB))
+	qwM_arr = array("Q", unpack(f">{cqw}Q", qwM))
 
 	qwC_arr = array("Q", [0] * cqw)
 
 	buf1 = array("Q", [0] * 0x21)
 	buf2 = array("Q", [0] * 0x21)
 
-	qwMI = np.uint64(qwMI)
-	mmi_stat = qwMI * np.uint64(qwA_arr[0])
+	# qwMI = qwMI
+	mmi_stat = qwMI * qwA_arr[0]
+	mmi_stat &= UINT64_MASK
 	for i in range(cqw):
-		mmi = (mmi_stat * np.uint64(qwB_arr[i])) + (qwMI * (np.uint64(buf1[1]) - np.uint64(buf2[1])))
-		acc1 = np.uint64(0)
-		acc2 = np.uint64(0)
+		mmi = (mmi_stat * qwB_arr[i]) + (qwMI * (buf1[1] - buf2[1]))
+		acc1 = 0
+		acc2 = 0
 		for j in range(cqw):
 			(hi_val, lo_val) = XeCryptMulHdu(qwB_arr[i], qwA_arr[j])
-			lo_val += np.uint64(buf1[j + 1])
-			if lo_val < np.uint64(buf1[j + 1]):
-				hi_val += np.uint8(1)
-			lo_val += np.uint64(acc1)
+			lo_val += buf1[j + 1]
+			lo_val &= UINT64_MASK
+			if lo_val < buf1[j + 1]:
+				hi_val += 1
+			lo_val += acc1
+			lo_val &= UINT64_MASK
 			if lo_val < acc1:
-				hi_val += np.uint8(1)
-			acc1 = np.uint64(hi_val)
-			buf1[j] = lo_val.item()
+				hi_val += 1
+			acc1 = hi_val
+			lo_val &= UINT64_MASK
+			buf1[j] = lo_val
 
-			(hi_val, lo_val) = XeCryptMulHdu(mmi.item(), qwM_arr[j])
-			lo_val += np.uint64(buf2[j + 1])
-			if lo_val < np.uint64(buf2[j + 1]):
-				hi_val += np.uint8(1)
-			lo_val += np.uint64(acc2)
+			(hi_val, lo_val) = XeCryptMulHdu(mmi, qwM_arr[j])
+			lo_val += buf2[j + 1]
+			lo_val &= UINT64_MASK
+			if lo_val < buf2[j + 1]:
+				hi_val += 1
+			lo_val += acc2
+			lo_val &= UINT64_MASK
 			if lo_val < acc2:
-				hi_val += np.uint8(1)
-			acc2 = np.uint64(hi_val)
-			buf2[j] = lo_val.item()
-		buf1[cqw] = acc1.item()
-		buf2[cqw] = acc2.item()
+				hi_val += 1
+			acc2 = hi_val
+			lo_val &= UINT64_MASK
+			buf2[j] = lo_val
+		buf1[cqw] = acc1
+		buf2[cqw] = acc2
 	for i in range(cqw):
 		if buf1[cqw - i] > buf2[cqw - i]:
-			car = np.uint64(0)
+			car = 0
 			for j in range(cqw):
-				val = (np.uint64(buf1[j + 1]) - np.uint64(buf2[j + 1])) - car
-				qwC_arr[j] = val.item()
-				val = (val ^ np.uint64(buf1[j + 1])) | (np.uint64(buf2[j + 1]) ^ np.uint64(buf1[j + 1]))
-				car = (np.uint64(buf1[j + 1]) ^ val) >> np.uint8(63)
+				val = (buf1[j + 1] - buf2[j + 1]) - car
+				qwC_arr[j] = val
+				val = (val ^ buf1[j + 1]) | (buf2[j + 1] ^ buf1[j + 1])
+				car = (buf1[j + 1] ^ val) >> 63
 			return bswap64(bytes(qwC_arr))
 		if buf1[cqw - i] < buf2[cqw - i]:
-			car1 = np.uint64(0)
-			car2 = np.uint64(0)
+			car1 = 0
+			car2 = 0
 			for j in range(cqw):
-				val1 = np.uint64(qwM_arr[j])
-				val2 = (np.uint64(buf1[j + 1]) + val1) + car1
-				val3 = (val2 - np.uint64(buf2[j + 1])) - car2
-				qwC_arr[j] = val3.item()
+				val1 = qwM_arr[j]
+				val2 = (buf1[j + 1] + val1) + car1
+				val3 = (val2 - buf2[j + 1]) - car2
+				val3 &= UINT64_MASK
+				qwC_arr[j] = val3
 				val1 ^= val2
 				val3 ^= val2
-				car1 = (((np.uint64(buf1[j + 1]) ^ val2) | val1) ^ val2) >> np.uint8(63)
-				car2 = (((np.uint64(buf2[j + 1]) ^ val2) | val3) ^ val2) >> np.uint8(63)
+				car1 = (((buf1[j + 1] ^ val2) | val1) ^ val2) >> 63
+				car2 = (((buf2[j + 1] ^ val2) | val3) ^ val2) >> 63
 			return bswap64(bytes(qwC_arr))
 
 def XeCryptBnQwNeModInv(val: int) -> int:
@@ -691,8 +702,10 @@ def XeCryptBnQwNeModInv(val: int) -> int:
 	i = 5
 	while i < 0x20:
 		t3 = t1 + 1
-		t2 = (t3 * t2) & 0xFFFFFFFFFFFFFFFF
-		t1 = (t1 * t1) & 0xFFFFFFFFFFFFFFFF
+		t2 *= t3
+		t2 &= 0xFFFFFFFFFFFFFFFF
+		t1 *= t1
+		t1 &= 0xFFFFFFFFFFFFFFFF
 		i <<= 1
 	t1 = t1 + 1
 	return t1 * t2
@@ -1113,9 +1126,6 @@ def XeCryptKeyVaultVerify(cpu_key: (bytes, bytearray), data: (bytes, bytearray),
 	kv_data = data[0x18:]
 	kv_hash = XeCryptHmacSha(cpu_key, kv_data[4:4 + 0xD4], kv_data[0xE8:0xE8 + 0x1CF8], kv_data[0x1EE0:0x1EE0 + 0x2108])
 	return XeKeysPkcs1Verify(kv_data[0x1DE0:0x1DE0 + 0x100], kv_hash, pub_key)
-
-# suppress numpy warnings
-np.warnings.filterwarnings("ignore")
 
 __all__ = [
 	# constants
