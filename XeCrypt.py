@@ -799,7 +799,7 @@ def XeCryptBnQwBeSigCreate(bHash: (bytes, bytearray), bSalt: (bytes, bytearray),
 
 	if cqw == 0x20:  # PXECRYPT_RSAPRV_2048
 		if dwPubExp == 0x3 or dwPubExp == 0x10001:
-			sig = XeCryptBnQwBeSigFormat((b"\x00" * 256), bHash, bSalt)
+			sig = XeCryptBnQwBeSigFormat((b"\x00" * (cqw * 8)), bHash, bSalt)
 			if sig != aqwM:
 				aqwM = int.from_bytes(bswap64(aqwM), "little", signed=False)
 
