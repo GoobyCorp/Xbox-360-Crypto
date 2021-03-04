@@ -18,6 +18,8 @@ KEY_NAMES = {
 
 def main() -> None:
 	key_path = Path("Keys")
+	num_keys = len(KEY_NAMES)
+	keys_found = 0
 	for file in key_path.iterdir():
 		if str(file).endswith(".bin"):
 			data = file.read_bytes()
@@ -31,6 +33,11 @@ def main() -> None:
 					print("to")
 					print(file.parent.joinpath(f"{KEY_NAMES[cksm]}.bin").absolute())
 					file.rename(file.parent.absolute().joinpath(f"{KEY_NAMES[cksm]}.bin"))
+					keys_found += 1
+
+	if keys_found != num_keys:
+		print("You're missing keys!")
+
 
 if __name__ == "__main__":
 	main()

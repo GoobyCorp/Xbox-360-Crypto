@@ -646,12 +646,10 @@ def XeCryptBnQwNeModMul(qwA: (bytes, bytearray), qwB: (bytes, bytearray), qwMI: 
 			(hi_val, lo_val) = XeCryptMulHdu(qwB_arr[i], qwA_arr[j])
 			lo_val += buf1[j + 1]
 			lo_val &= UINT64_MASK
-			if lo_val < buf1[j + 1]:
-				hi_val += 1
+			hi_val += (lo_val < buf1[j + 1])
 			lo_val += acc1
 			lo_val &= UINT64_MASK
-			if lo_val < acc1:
-				hi_val += 1
+			hi_val += (lo_val < acc1)
 			acc1 = hi_val
 			lo_val &= UINT64_MASK
 			buf1[j] = lo_val
@@ -659,12 +657,10 @@ def XeCryptBnQwNeModMul(qwA: (bytes, bytearray), qwB: (bytes, bytearray), qwMI: 
 			(hi_val, lo_val) = XeCryptMulHdu(mmi, qwM_arr[j])
 			lo_val += buf2[j + 1]
 			lo_val &= UINT64_MASK
-			if lo_val < buf2[j + 1]:
-				hi_val += 1
+			hi_val += (lo_val < buf2[j + 1])
 			lo_val += acc2
 			lo_val &= UINT64_MASK
-			if lo_val < acc2:
-				hi_val += 1
+			hi_val += (lo_val < acc2)
 			acc2 = hi_val
 			lo_val &= UINT64_MASK
 			buf2[j] = lo_val
@@ -675,6 +671,7 @@ def XeCryptBnQwNeModMul(qwA: (bytes, bytearray), qwB: (bytes, bytearray), qwMI: 
 			car = 0
 			for j in range(cqw):
 				val = (buf1[j + 1] - buf2[j + 1]) - car
+				val &= UINT64_MASK
 				qwC_arr[j] = val
 				val = (val ^ buf1[j + 1]) | (buf2[j + 1] ^ buf1[j + 1])
 				car = (buf1[j + 1] ^ val) >> 63
@@ -711,22 +708,13 @@ def XeCryptBnQwNeModInv(val: int) -> int:
 	return t1 * t2
 
 def XeCryptBnQwNeModExpRoot(data: int, p: int, q: int, dp: int, dq: int, cr: int) -> int:
-	ba = get_int_size(data)
-
 	c = data % p  # XeCryptBnQwNeMod
 	m1 = pow(c, dp, p)  # XeCryptBnQwNeModExp
 	c = data % q  # XeCryptBnQwNeMod
 	m2 = pow(c, dq, q)  # XeCryptBnQwNeModExp
 
-	t = (m1 - m2)
-	while True:
-		t += p
-		# t fits within the RSA modulus' size
-		if get_int_size(t) <= ba:
-			break
-
-	h = (cr * t) % p
-	m = m2 + h * q
+	h = (cr * (m1 - m2)) % p
+	m = (m2 + (h * q)) % (p * q)
 	return m
 
 def BnQwBeBufSwap(data: (bytes, bytearray), cqw: int) -> bytes:
@@ -764,25 +752,31 @@ def XeCryptBnQwNeRsaKeyToRsaProv(rsa_key: (bytes, bytearray)) -> (RSA, None):
 
 		return RSA.construct((aqwM, dwPubExp))
 
-def XeCryptBnQwNeRsaKeyGen(cbits: int, dwPubExp: int = 0x10001) -> bytes:
+def XeCryptBnQwNeRsaKeyGen(cbits: int = 2048, dwPubExp: int = 0x10001) -> tuple:
 	prv_key = RSA.generate(cbits, e=dwPubExp)
-	cqw = prv_key.size_in_bytes() // 8
+	mod_size = prv_key.size_in_bytes()
+	param_size = mod_size // 2
+	cqw = mod_size // 8
 
-	n = bswap64(prv_key.n.to_bytes(prv_key.size_in_bytes(), "little", signed=False))
-	p = bswap64(prv_key.p.to_bytes(prv_key.size_in_bytes() // 2, "little", signed=False))
-	q = bswap64(prv_key.q.to_bytes(prv_key.size_in_bytes() // 2, "little", signed=False))
-	dp = bswap64((prv_key.d % (prv_key.p - 1)).to_bytes(prv_key.size_in_bytes() // 2, "little", signed=False))
-	dq = bswap64((prv_key.d % (prv_key.q - 1)).to_bytes(prv_key.size_in_bytes() // 2, "little", signed=False))
-	u = bswap64(prv_key.u.to_bytes(prv_key.size_in_bytes() // 2, "little", signed=False))
+	n = bswap64(prv_key.n.to_bytes(mod_size, "little", signed=False))
+	p = bswap64(prv_key.p.to_bytes(param_size, "little", signed=False))
+	q = bswap64(prv_key.q.to_bytes(param_size, "little", signed=False))
+	dp = bswap64((prv_key.d % (prv_key.p - 1)).to_bytes(param_size, "little", signed=False))
+	dq = bswap64((prv_key.d % (prv_key.q - 1)).to_bytes(param_size, "little", signed=False))
+	u = bswap64(modinv(prv_key.q, prv_key.p).to_bytes(param_size, "little", signed=False))
 
 	if cbits == 1024:
-		return pack(">2IQ 128s 64s 64s 64s 64s 64s", cqw, dwPubExp, 0, n, p, q, dp, dq, u)
+		b_prv_key = pack(">2IQ 128s 64s 64s 64s 64s 64s", cqw, dwPubExp, 0, n, p, q, dp, dq, u)
+		return (b_prv_key[:XECRYPT_RSAPUB_1024_SIZE], b_prv_key)
 	elif cbits == 1536:
-		return pack(">2IQ 192s 96s 96s 96s 96s 96s", cqw, dwPubExp, 0, n, p, q, dp, dq, u)
+		b_prv_key = pack(">2IQ 192s 96s 96s 96s 96s 96s", cqw, dwPubExp, 0, n, p, q, dp, dq, u)
+		return (b_prv_key[:XECRYPT_RSAPUB_1536_SIZE], b_prv_key)
 	elif cbits == 2048:
-		return pack(">2IQ 256s 128s 128s 128s 128s 128s", cqw, dwPubExp, 0, n, p, q, dp, dq, u)
+		b_prv_key = pack(">2IQ 256s 128s 128s 128s 128s 128s", cqw, dwPubExp, 0, n, p, q, dp, dq, u)
+		return (b_prv_key[:XECRYPT_RSAPUB_2048_SIZE], b_prv_key)
 	elif cbits == 4096:
-		return pack(">2IQ 512s 256s 256s 256s 256s 256s", cqw, dwPubExp, 0, n, p, q, dp, dq, u)
+		b_prv_key = pack(">2IQ 512s 256s 256s 256s 256s 256s", cqw, dwPubExp, 0, n, p, q, dp, dq, u)
+		return (b_prv_key[:XECRYPT_RSAPUB_4096_SIZE], b_prv_key)
 
 def XeCryptBnQwBeSigFormat(sig: (bytes, bytearray), bHash: (bytes, bytearray), bSalt: (bytes, bytearray)) -> bytes:
 	sig = bytearray(sig)
@@ -795,7 +789,7 @@ def XeCryptBnQwBeSigFormat(sig: (bytes, bytearray), bHash: (bytes, bytearray), b
 	sig[0] &= 0x7F
 	return BnQwBeBufSwap(sig, 0x100 // 8)
 
-def XeCryptBnQwBeSigCreate(bHash: (bytes, bytearray), bSalt: (bytes, bytearray), prv_key: (bytes, bytearray)) -> (bytes, bool):
+def XeCryptBnQwBeSigCreate(bHash: (bytes, bytearray), bSalt: (bytes, bytearray), prv_key: (bytes, bytearray)) -> bytes:
 	(cqw,) = unpack(">I", prv_key[:calcsize("I")])
 	assert cqw in [0x10, 0x18, 0x20, 0x40], "Unsupported key size"
 
@@ -804,7 +798,7 @@ def XeCryptBnQwBeSigCreate(bHash: (bytes, bytearray), bSalt: (bytes, bytearray),
 	(cqw, dwPubExp, qwReserved, aqwM, aqwP, aqwQ, aqwDP, aqwDQ, aqwCR) = unpack(f">2IQ {mod_size}s {param_size}s {param_size}s {param_size}s {param_size}s {param_size}s", prv_key)
 
 	if cqw == 0x20:  # PXECRYPT_RSAPRV_2048
-		if dwPubExp == 0x00000003 or dwPubExp == 0x00010001:
+		if dwPubExp == 0x3 or dwPubExp == 0x10001:
 			sig = XeCryptBnQwBeSigFormat((b"\x00" * 256), bHash, bSalt)
 			if sig != aqwM:
 				aqwM = int.from_bytes(bswap64(aqwM), "little", signed=False)
@@ -814,7 +808,6 @@ def XeCryptBnQwBeSigCreate(bHash: (bytes, bytearray), bSalt: (bytes, bytearray),
 				sig = (x * r) % aqwM  # move to Montgomery domain
 
 				return bswap64(sig.to_bytes(cqw * 8, "little", signed=False))
-	return False
 
 def XeCryptBnQwBeSigVerify(sig: (bytes, bytearray), bHash: (bytes, bytearray), bSalt: (bytes, bytearray), pub_key: (bytes, bytearray)) -> bool:
 	(cqw,) = unpack(">I", pub_key[:calcsize("I")])
@@ -823,19 +816,19 @@ def XeCryptBnQwBeSigVerify(sig: (bytes, bytearray), bHash: (bytes, bytearray), b
 	mod_size = cqw * 8
 	(cqw, dwPubExp, qwReserved, aqwM) = unpack(f">2IQ {mod_size}s", pub_key)
 
-	if qwReserved:
+	if qwReserved != 0:
 		mod_inv = qwReserved
 	else:
 		mod_inv = XeCryptBnQwNeModInv(unpack(">Q", aqwM[:calcsize("Q")])[0])
-		mod_inv &= 0xFFFFFFFFFFFFFFFF
+		mod_inv &= UINT64_MASK
 
 	sig_dec = sig
 	sig_com = sig_dec
 
-	exp = dwPubExp
-	while exp >> 1:
-		exp >>= 1
+	exp = dwPubExp >> 1
+	while exp:
 		sig_com = XeCryptBnQwNeModMul(sig_com, sig_com, mod_inv, aqwM, cqw)
+		exp >>= 1
 	sig_dec = XeCryptBnQwNeModMul(sig_com, sig_dec, mod_inv, aqwM, cqw)
 
 	sig_dec = BnQwBeBufSwap(sig_dec, cqw)
@@ -854,7 +847,7 @@ def XeCryptBnQwBeSigVerify(sig: (bytes, bytearray), bHash: (bytes, bytearray), b
 	if not all([x == 0 for x in sig_dec[1:0xE0]]):
 		return False
 
-	if bSalt != sig_dec[0xE1:]:
+	if bSalt != sig_dec[0xE1:0xE1 + len(bSalt)]:
 		return False
 
 	return True
