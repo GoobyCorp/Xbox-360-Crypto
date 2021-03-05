@@ -356,7 +356,7 @@ def main() -> None:
 		# host port
 		ni.write(pack(">H", 50010))
 		# host address
-		ni.write(pack("4B", 192, 168, 1, 37))
+		ni.write(pack("4B", 192, 168, 1, 35))
 
 		# ni.seek(0)
 		# print(ni.read(512).hex().upper())

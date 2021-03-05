@@ -765,31 +765,36 @@ def XeCryptBnQwNeRsaKeyGen(cbits: int = 2048, dwPubExp: int = 0x10001) -> tuple:
 	dq = bswap64((prv_key.d % (prv_key.q - 1)).to_bytes(param_size, "little", signed=False))
 	u = bswap64(modinv(prv_key.q, prv_key.p).to_bytes(param_size, "little", signed=False))
 
+	mod_inv = XeCryptBnQwNeModInv(int.from_bytes(n[:8], "big"))
+	mod_inv &= UINT64_MASK
+
 	if cbits == 1024:
-		b_prv_key = pack(">2IQ 128s 64s 64s 64s 64s 64s", cqw, dwPubExp, 0, n, p, q, dp, dq, u)
+		b_prv_key = pack(">2IQ 128s 64s 64s 64s 64s 64s", cqw, dwPubExp, mod_inv, n, p, q, dp, dq, u)
 		return (b_prv_key[:XECRYPT_RSAPUB_1024_SIZE], b_prv_key)
 	elif cbits == 1536:
-		b_prv_key = pack(">2IQ 192s 96s 96s 96s 96s 96s", cqw, dwPubExp, 0, n, p, q, dp, dq, u)
+		b_prv_key = pack(">2IQ 192s 96s 96s 96s 96s 96s", cqw, dwPubExp, mod_inv, n, p, q, dp, dq, u)
 		return (b_prv_key[:XECRYPT_RSAPUB_1536_SIZE], b_prv_key)
 	elif cbits == 2048:
-		b_prv_key = pack(">2IQ 256s 128s 128s 128s 128s 128s", cqw, dwPubExp, 0, n, p, q, dp, dq, u)
+		b_prv_key = pack(">2IQ 256s 128s 128s 128s 128s 128s", cqw, dwPubExp, mod_inv, n, p, q, dp, dq, u)
 		return (b_prv_key[:XECRYPT_RSAPUB_2048_SIZE], b_prv_key)
 	elif cbits == 4096:
-		b_prv_key = pack(">2IQ 512s 256s 256s 256s 256s 256s", cqw, dwPubExp, 0, n, p, q, dp, dq, u)
+		b_prv_key = pack(">2IQ 512s 256s 256s 256s 256s 256s", cqw, dwPubExp, mod_inv, n, p, q, dp, dq, u)
 		return (b_prv_key[:XECRYPT_RSAPUB_4096_SIZE], b_prv_key)
 
-def XeCryptBnQwBeSigFormat(sig: (bytes, bytearray), bHash: (bytes, bytearray), bSalt: (bytes, bytearray)) -> bytes:
-	sig = bytearray(sig)
-	m_prime = SHA1.new((b"\x00" * 8) + bHash + bSalt).digest()
+def XeCryptBnQwBeSigFormat(sig: (bytes, bytearray), b_hash: (bytes, bytearray), salt: (bytes, bytearray)) -> bytes:
+	if type(sig) == bytes:
+		sig = bytearray(sig)
+
+	ab_hash = SHA1.new((b"\x00" * 8) + b_hash + salt).digest()
 	pack_into("<B", sig, 0xE0, 1)
-	pack_into("<10s", sig, 0xE1, bSalt)
-	pack_into("<235s", sig, 0, XeCryptRc4Ecb(m_prime, sig[:0xEB]))
-	pack_into("<20s", sig, 0xEB, m_prime)
+	pack_into("<10s", sig, 0xE1, salt)
+	pack_into("<235s", sig, 0, XeCryptRc4Ecb(ab_hash, sig[:0xEB]))
+	pack_into("<20s", sig, 0xEB, ab_hash)
 	pack_into("<B", sig, 0xFF, 0xBC)
 	sig[0] &= 0x7F
 	return BnQwBeBufSwap(sig, 0x100 // 8)
 
-def XeCryptBnQwBeSigCreate(bHash: (bytes, bytearray), bSalt: (bytes, bytearray), prv_key: (bytes, bytearray)) -> bytes:
+def XeCryptBnQwBeSigCreate(b_hash: (bytes, bytearray), salt: (bytes, bytearray), prv_key: (bytes, bytearray)) -> bytes:
 	(cqw,) = unpack(">I", prv_key[:calcsize("I")])
 	assert cqw in [0x10, 0x18, 0x20, 0x40], "Unsupported key size"
 
@@ -799,7 +804,7 @@ def XeCryptBnQwBeSigCreate(bHash: (bytes, bytearray), bSalt: (bytes, bytearray),
 
 	if cqw == 0x20:  # PXECRYPT_RSAPRV_2048
 		if dwPubExp == 0x3 or dwPubExp == 0x10001:
-			sig = XeCryptBnQwBeSigFormat((b"\x00" * (cqw * 8)), bHash, bSalt)
+			sig = XeCryptBnQwBeSigFormat((b"\x00" * (cqw * 8)), b_hash, salt)
 			if sig != aqwM:
 				aqwM = int.from_bytes(bswap64(aqwM), "little", signed=False)
 
@@ -809,7 +814,7 @@ def XeCryptBnQwBeSigCreate(bHash: (bytes, bytearray), bSalt: (bytes, bytearray),
 
 				return bswap64(sig.to_bytes(cqw * 8, "little", signed=False))
 
-def XeCryptBnQwBeSigVerify(sig: (bytes, bytearray), bHash: (bytes, bytearray), bSalt: (bytes, bytearray), pub_key: (bytes, bytearray)) -> bool:
+def XeCryptBnQwBeSigVerify(sig: (bytes, bytearray), b_hash: (bytes, bytearray), salt: (bytes, bytearray), pub_key: (bytes, bytearray)) -> bool:
 	(cqw,) = unpack(">I", pub_key[:calcsize("I")])
 	assert cqw in [0x10, 0x18, 0x20, 0x40], "Unsupported key size"
 
@@ -819,14 +824,14 @@ def XeCryptBnQwBeSigVerify(sig: (bytes, bytearray), bHash: (bytes, bytearray), b
 	if qwReserved != 0:
 		mod_inv = qwReserved
 	else:
-		mod_inv = XeCryptBnQwNeModInv(unpack(">Q", aqwM[:calcsize("Q")])[0])
+		mod_inv = XeCryptBnQwNeModInv(int.from_bytes(aqwM[:8], "big"))
 		mod_inv &= UINT64_MASK
 
 	sig_dec = sig
 	sig_com = sig_dec
 
 	exp = dwPubExp >> 1
-	while exp:
+	while exp > 0:
 		sig_com = XeCryptBnQwNeModMul(sig_com, sig_com, mod_inv, aqwM, cqw)
 		exp >>= 1
 	sig_dec = XeCryptBnQwNeModMul(sig_com, sig_dec, mod_inv, aqwM, cqw)
@@ -836,7 +841,7 @@ def XeCryptBnQwBeSigVerify(sig: (bytes, bytearray), bHash: (bytes, bytearray), b
 	if sig_dec[0xFF] != 0xBC:
 		return False
 
-	if SHA1.new((b"\x00" * 8) + bHash + bSalt).digest() != sig_dec[0xEB:-1]:
+	if SHA1.new((b"\x00" * 8) + b_hash + salt).digest() != sig_dec[0xEB:-1]:
 		return False
 
 	sig_dec = XeCryptRc4Ecb(sig_dec[0xEB:-1], sig_dec[:0xEB])
@@ -847,7 +852,7 @@ def XeCryptBnQwBeSigVerify(sig: (bytes, bytearray), bHash: (bytes, bytearray), b
 	if not all([x == 0 for x in sig_dec[1:0xE0]]):
 		return False
 
-	if bSalt != sig_dec[0xE1:0xE1 + len(bSalt)]:
+	if sig_dec[0xE1:0xE1 + len(salt)] != salt:
 		return False
 
 	return True
@@ -1003,6 +1008,64 @@ def XeCryptUidEccEncode(data: (bytes, bytearray)) -> bytes:
 			data[0xF] = (0x80 ^ b_tmp) & 0xFF
 	return data
 
+# additions to the XeCrypt library that didn't exist in the original
+def XeCryptCpuKeyValid(cpu_key: (bytes, bytearray)) -> bool:
+	wght_mask = bytes.fromhex("FFFFFFFFFFFFFFFFFFFFFFFFFF030000")
+	key_tmp = bytearray(0x10)
+	for i in range(0x10):
+		key_tmp[i] = cpu_key[i] & wght_mask[i]
+	wght = XeCryptHammingWeight(key_tmp)
+	key_tmp = XeCryptUidEccEncode(key_tmp)
+	ecc_good = (cpu_key == key_tmp)
+	wght_good = (wght == 0x35)
+	return ecc_good and wght_good
+
+def XeCryptCpuKeyGen() -> (bytes, bytearray):
+	key = bytearray(0x10)
+	for dw_unset_count in range(0x35):
+		dw_rand = int.from_bytes(urandom(4), "little") % ((~dw_unset_count) + 0x6A + 1)
+		bit_pos = 0
+		for bit_pos in range(0x6A):
+			if ((key[(bit_pos >> 3) & 0x1F] >> (bit_pos & 0x7)) & 1) == 0:
+				if dw_rand == 0:
+					break
+				dw_rand -= 1
+		if bit_pos == 0x6A or dw_rand:
+			print("Error, dw_rand: %X" % (dw_rand))
+		key[(bit_pos >> 3) & 0x1F] = (1 << (bit_pos & 0x7)) ^ key[(bit_pos >> 3) & 0x1F]
+	return XeCryptUidEccEncode(key)
+
+def XeCryptKeyVaultDecrypt(cpu_key: (bytes, bytearray), data: (bytes, bytearray)) -> bytes:
+	assert XeCryptCpuKeyValid(cpu_key), "Invalid CPU key"
+	version = bytes([0x7, 0x12])
+	kv_hash = XeCryptHmacSha(cpu_key, data[:0x10])[:0x10]
+	XeCryptRc4EcbKey(kv_hash)
+	data = data[:0x10] + XeCryptRc4(data[0x10:])
+	kv_hash = XeCryptHmacSha(cpu_key, data[0x10:], version)[:0x10]
+	assert data[:0x10] == kv_hash, "Invalid KV digest"
+	return data
+
+def XeCryptKeyVaultEncrypt(cpu_key: (bytes, bytearray), data: (bytes, bytearray)) -> bytes:
+	if type(data) == bytes:
+		data = bytearray(data)
+
+	assert XeCryptCpuKeyValid(cpu_key), "Invalid CPU key"
+	version = bytes([0x7, 0x12])
+	# random nonce
+	pack_into("8s", data, 0, XeCryptRandom(0x10))
+	# random obfuscation key
+	pack_into("8s", data, 0x10, XeCryptRandom(8))
+	pack_into("16s", data, 0, XeCryptHmacSha(cpu_key, data[0x10:], version)[:0x10])
+	rc4_key = XeCryptHmacSha(cpu_key, data[:0x10])[:0x10]
+	XeCryptRc4EcbKey(rc4_key)
+	return bytes(data[:0x10]) + XeCryptRc4(data[0x10:])
+
+def XeCryptKeyVaultVerify(cpu_key: (bytes, bytearray), data: (bytes, bytearray), pub_key: (bytes, bytearray)) -> bool:
+	assert XeCryptCpuKeyValid(cpu_key), "Invalid CPU key"
+	kv_data = data[0x18:]
+	kv_hash = XeCryptHmacSha(cpu_key, kv_data[4:4 + 0xD4], kv_data[0xE8:0xE8 + 0x1CF8], kv_data[0x1EE0:0x1EE0 + 0x2108])
+	return XeKeysPkcs1Verify(kv_data[0x1DE0:0x1DE0 + 0x100], kv_hash, pub_key)
+
 def XeCryptPageEccEncode(data: (bytes, bytearray)) -> bytes:
 	if type(data) == bytes:
 		data = bytearray(data)
@@ -1062,63 +1125,6 @@ def check_page_ecc(data: (bytes, bytearray), spare: (bytes, bytearray)) -> bool:
 		spare[15] & 0xFF == ((val >> 18) & 0xFF):
 		return True
 	return False
-
-def XeCryptCpuKeyValid(cpu_key: (bytes, bytearray)) -> bool:
-	wght_mask = bytes.fromhex("FFFFFFFFFFFFFFFFFFFFFFFFFF030000")
-	key_tmp = bytearray(0x10)
-	for i in range(0x10):
-		key_tmp[i] = cpu_key[i] & wght_mask[i]
-	wght = XeCryptHammingWeight(key_tmp)
-	key_tmp = XeCryptUidEccEncode(key_tmp)
-	ecc_good = (cpu_key == key_tmp)
-	wght_good = (wght == 0x35)
-	return ecc_good and wght_good
-
-def XeCryptCpuKeyGen() -> (bytes, bytearray):
-	key = bytearray(0x10)
-	for dw_unset_count in range(0x35):
-		dw_rand = int.from_bytes(urandom(4), "little") % ((~dw_unset_count) + 0x6A + 1)
-		bit_pos = 0
-		for bit_pos in range(0x6A):
-			if ((key[(bit_pos >> 3) & 0x1F] >> (bit_pos & 0x7)) & 1) == 0:
-				if dw_rand == 0:
-					break
-				dw_rand -= 1
-		if bit_pos == 0x6A or dw_rand:
-			print("Error, dw_rand: %X" % (dw_rand))
-		key[(bit_pos >> 3) & 0x1F] = (1 << (bit_pos & 0x7)) ^ key[(bit_pos >> 3) & 0x1F]
-	return XeCryptUidEccEncode(key)
-
-def XeCryptKeyVaultDecrypt(cpu_key: (bytes, bytearray), data: (bytes, bytearray)) -> bytes:
-	assert XeCryptCpuKeyValid(cpu_key), "Invalid CPU key"
-	version = bytes([0x7, 0x12])
-	kv_hash = XeCryptHmacSha(cpu_key, data[:0x10])[:0x10]
-	XeCryptRc4EcbKey(kv_hash)
-	data = data[:0x10] + XeCryptRc4(data[0x10:])
-	kv_hash = XeCryptHmacSha(cpu_key, data[0x10:], version)[:0x10]
-	assert data[:0x10] == kv_hash, "Invalid KV digest"
-	return data
-
-def XeCryptKeyVaultEncrypt(cpu_key: (bytes, bytearray), data: (bytes, bytearray)) -> bytes:
-	if type(data) == bytes:
-		data = bytearray(data)
-
-	assert XeCryptCpuKeyValid(cpu_key), "Invalid CPU key"
-	version = bytes([0x7, 0x12])
-	# random nonce
-	pack_into("8s", data, 0, XeCryptRandom(0x10))
-	# random obfuscation key
-	pack_into("8s", data, 0x10, XeCryptRandom(8))
-	pack_into("16s", data, 0, XeCryptHmacSha(cpu_key, data[0x10:], version)[:0x10])
-	rc4_key = XeCryptHmacSha(cpu_key, data[:0x10])[:0x10]
-	XeCryptRc4EcbKey(rc4_key)
-	return bytes(data[:0x10]) + XeCryptRc4(data[0x10:])
-
-def XeCryptKeyVaultVerify(cpu_key: (bytes, bytearray), data: (bytes, bytearray), pub_key: (bytes, bytearray)) -> bool:
-	assert XeCryptCpuKeyValid(cpu_key), "Invalid CPU key"
-	kv_data = data[0x18:]
-	kv_hash = XeCryptHmacSha(cpu_key, kv_data[4:4 + 0xD4], kv_data[0xE8:0xE8 + 0x1CF8], kv_data[0x1EE0:0x1EE0 + 0x2108])
-	return XeKeysPkcs1Verify(kv_data[0x1DE0:0x1DE0 + 0x100], kv_hash, pub_key)
 
 __all__ = [
 	# constants
@@ -1231,4 +1237,10 @@ __all__.extend([
 	"bswap64",
 	"XeCryptBnQw_SwapDwQwLeBe",
 	"XeCryptPrintRsa"
+])
+
+__all__.extend([
+	"calc_page_ecc",
+	"fix_page_ecc",
+	"check_page_ecc"
 ])
