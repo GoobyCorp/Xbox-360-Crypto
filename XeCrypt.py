@@ -11,10 +11,11 @@ __version__ = "1.0.0.0"
 __license__ = "GPL"
 __status__ = "Development"
 
+from math import gcd
 from os import urandom
 from array import array
 from enum import IntEnum
-from math import log, gcd
+from io import BytesIO, StringIO
 from struct import pack, unpack, pack_into, unpack_from, calcsize
 from ctypes import BigEndianStructure, c_ubyte, c_uint16, c_uint32, c_uint64
 
@@ -336,22 +337,27 @@ def write_file(filename: str, data: (str, bytes, bytearray)) -> None:
 def reverse(b: (bytes, bytearray)) -> (bytes, bytearray):
 	return bytes(reversed(b))
 
-def c_print_array(data: (bytes, bytearray), fmt: str, endian: str = "<", name: str = "output") -> str:
+def print_c_array(data: (bytes, bytearray), fmt: str = "B", endian: str = "<", name: str = "output", bpr: int = 16) -> str:
+	word_lut = ["BYTE", "WORD", "DWORD", 0, "QWORD"]
 	bytes_per_item = calcsize(fmt)
-	bits_per_item = bytes_per_item * 8
-	bytes_per_row = 16
-	items_per_row = bytes_per_row // bytes_per_item
-	num_items = len(data) // bytes_per_item
-	da = unpack(f"{endian}{num_items}{fmt}", data)
-	tmp = []
-	output = f"u{bits_per_item} {name}[{num_items}] = {{\n"
-	for q in da:
-		tmp.append("0x" + hex(q)[2:].zfill(bytes_per_item * 2).upper())
-		if len(tmp) == items_per_row:
-			output += "\t" + ", ".join(tmp) + ",\n"
-			tmp.clear()
-	output += "};"
+	words_per_item = bytes_per_item // 2
+	num_row_items = bpr // bytes_per_item
+	num_rows = len(data) // bpr
+	with BytesIO(data) as bio:
+		with StringIO() as sio:
+			sio.write(f"{word_lut[words_per_item]} {name}[] = {{\n")
+			for row_num in range(num_rows):
+				row_items = unpack(f"{endian}{num_row_items}{fmt}", bio.read(bytes_per_item * num_row_items))
+				sio.write("\t")
+				for item in row_items:
+					sio.write("0x" + hex(item)[2:].zfill(bytes_per_item * 2).upper())
+					if row_num != (num_rows - 1) or item != row_items[-1]:
+						sio.write(", ")
+				sio.write("\n")
+			sio.write("};")
+			output = sio.getvalue()
 	print(output)
+	return output
 
 def bswap(data: (bytes, bytearray), fmt: str) -> bytes:
 	size = calcsize(fmt)
@@ -394,11 +400,6 @@ def egcd(e: int, phi: int) -> tuple:
 def modinv(e: int, phi: int) -> int:
 	g, x, y = egcd(e, phi)
 	return x % phi
-
-def get_int_size(n: int) -> int:
-	if n == 0:
-		return 1
-	return int(log(n, 256)) + 1
 
 def memcmp(b0: (bytes, bytearray), b1: (bytes, bytearray), size: int) -> bool:
 	for i in range(size):
@@ -549,6 +550,7 @@ def XeCryptDes3Cbc(key: (bytes, bytearray), iv: (bytes, bytearray), data: (bytes
 def XeCryptRsaBinToStruct(data: (bytes, bytearray)) -> (XECRYPT_RSAPUB_1024, XECRYPT_RSAPUB_2048, XECRYPT_RSAPUB_4096, XECRYPT_RSAPRV_1024, XECRYPT_RSAPRV_2048, XECRYPT_RSAPRV_4096):
 	size = len(data)
 
+	# public keys
 	if size == XECRYPT_RSAPUB_1024_SIZE:
 		return XECRYPT_RSAPUB_1024.from_buffer_copy(data)
 	elif size == XECRYPT_RSAPUB_2048_SIZE:
@@ -556,6 +558,7 @@ def XeCryptRsaBinToStruct(data: (bytes, bytearray)) -> (XECRYPT_RSAPUB_1024, XEC
 	elif size == XECRYPT_RSAPUB_4096_SIZE:
 		return XECRYPT_RSAPUB_4096.from_buffer_copy(data)
 
+	# private keys
 	elif size == XECRYPT_RSAPRV_1024_SIZE:
 		return XECRYPT_RSAPRV_1024.from_buffer_copy(data)
 	elif size == XECRYPT_RSAPRV_2048_SIZE:
@@ -567,18 +570,18 @@ def XeCryptRsaStructToBin(struct: (XECRYPT_RSAPUB_1024, XECRYPT_RSAPUB_2048, XEC
 	return bytes(struct)
 
 def XeCryptPrintRsa(key: (bytes, bytearray, XECRYPT_RSAPUB_1024, XECRYPT_RSAPUB_2048, XECRYPT_RSAPUB_4096, XECRYPT_RSAPRV_1024, XECRYPT_RSAPRV_2048, XECRYPT_RSAPRV_4096)) -> None:
-	if isinstance(key, bytes) or isinstance(key, bytearray):
+	if type(key) in [bytes, bytearray]:
 		key = XeCryptRsaBinToStruct(key)
 
 	#print(f"Modulus: {key.n:%04X}")
 	print("u32 dwPubExp = " + "0x" + hex(key.rsa.e)[2:].zfill(8).upper() + ";")
-	c_print_array(key.n, "Q", ">", "aqwM")
+	print_c_array(key.n, "Q", ">", "aqwM")
 	if type(key) in [XECRYPT_RSAPRV_1024, XECRYPT_RSAPRV_2048, XECRYPT_RSAPRV_4096]:
-		c_print_array(key.p, "Q", ">", "aqwP")
-		c_print_array(key.q, "Q", ">", "aqwQ")
-		c_print_array(key.dp, "Q", ">", "aqwDP")
-		c_print_array(key.dq, "Q", ">", "aqwDQ")
-		c_print_array(key.cr, "Q", ">", "aqwCR")
+		print_c_array(key.p, "Q", ">", "aqwP")
+		print_c_array(key.q, "Q", ">", "aqwQ")
+		print_c_array(key.dp, "Q", ">", "aqwDP")
+		print_c_array(key.dq, "Q", ">", "aqwDQ")
+		print_c_array(key.cr, "Q", ">", "aqwCR")
 
 # checksums
 def XeCryptRotSum(data: (bytes, bytearray)) -> bytes:
@@ -1235,6 +1238,7 @@ __all__.extend([
 	"bswap16",
 	"bswap32",
 	"bswap64",
+	"print_c_array",
 	"XeCryptBnQw_SwapDwQwLeBe",
 	"XeCryptPrintRsa"
 ])

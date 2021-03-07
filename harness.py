@@ -184,13 +184,13 @@ def do_des_test() -> bool:
 
 	(des_key, des_feed, des_data) = unpack_from(f"<{XECRYPT_DES_KEY_SIZE}s {XECRYPT_DES_BLOCK_SIZE}s {XECRYPT_DES_BLOCK_SIZE * 8}s", test_data, 0)
 
-	des_data = XeCryptDesCbc(des_key, des_feed, des_data, False)
+	# des_data = XeCryptDesCbc(des_key, des_feed, des_data, False)
 	# print("    DES-CBC - ")
 	# if des_data == des_cbc_round:
-	#     print("OK")
-	# else:
-	#     print("FAILED")
-	#     des_pass = False
+	#	print("OK")
+	#else:
+	#	print("FAILED")
+	#	des_pass = False
 
 	(des_key, des_data) = unpack_from(f"<{XECRYPT_DES3_KEY_SIZE}s {XECRYPT_DES3_BLOCK_SIZE}s", test_data, 0)
 
