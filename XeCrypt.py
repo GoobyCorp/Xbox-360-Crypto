@@ -26,10 +26,10 @@ from Crypto.Cipher import ARC4, DES, DES3, AES
 
 # globals
 # ciphers
-RC4_CIPHER  = None
-AES_CIPHER  = None
-DES_CIPHER  = None
-DES3_CIPHER = None
+RC4_CIPHER: ARC4  = None
+AES_CIPHER: AES   = None
+DES_CIPHER: DES   = None
+DES3_CIPHER: DES3 = None
 
 # constants
 XECRYPT_SMC_KEY  = bytes.fromhex("42754E79")
@@ -75,6 +75,7 @@ XECRYPT_AES_FEED_SIZE  = 0x10
 XECRYPT_ROTSUM_DIGEST_SIZE = 0x20
 
 # types
+BYTE  = c_ubyte
 WORD  = c_uint16
 DWORD = c_uint32
 QWORD = c_uint64
@@ -105,7 +106,7 @@ class NAND_HEADER(BigEndianStructure):
 	   ("cb_offset", DWORD),
 	   ("sf1_offset", DWORD),
 	   ("copyright", (c_ubyte * 0x40)),
-	   ("padding", (c_ubyte * 0x10)),
+	   ("padding", (BYTE * 0x10)),
 	   ("kv_length", DWORD),
 	   ("sf2_offset", DWORD),
 	   ("patch_slots", WORD),
@@ -130,7 +131,7 @@ class BL_HEADER(BigEndianStructure):
 class SB_2BL_HEADER(BigEndianStructure):
 	_fields_ = [
 		("header", BL_HEADER),
-		("nonce", (c_ubyte * 0x10))
+		("nonce", (BYTE * 0x10))
 	]
 
 SC_3BL_HEADER = SB_2BL_HEADER
@@ -142,11 +143,11 @@ HV_HEADER = BL_HEADER
 
 class XECRYPT_SIG(BigEndianStructure):
 	_fields_ = [
-		("aqwPad", (c_uint64 * 28)),
-		("bOne", c_ubyte),
-		("abSalt", (c_ubyte * 0xA)),
-		("abHash", (c_ubyte * 0x14)),
-		("bEnd", c_ubyte)
+		("aqwPad", (QWORD * 28)),
+		("bOne", BYTE),
+		("abSalt", (BYTE * 0xA)),
+		("abHash", (BYTE * 0x14)),
+		("bEnd", BYTE)
 	]
 
 class XECRYPT_RSA(BigEndianStructure):
@@ -159,70 +160,70 @@ class XECRYPT_RSA(BigEndianStructure):
 class XECRYPT_RSAPUB_1024(BigEndianStructure):
 	_fields_ = [
 		("rsa", XECRYPT_RSA),
-		("n", (c_ubyte * 128))
+		("n", (BYTE * 128))
 	]
 
 class XECRYPT_RSAPUB_1536(BigEndianStructure):
 	_fields_ = [
 		("rsa", XECRYPT_RSA),
-		("n", (c_ubyte * 192))
+		("n", (BYTE * 192))
 	]
 
 class XECRYPT_RSAPUB_2048(BigEndianStructure):
 	_fields_ = [
 		("rsa", XECRYPT_RSA),
-		("n", (c_ubyte * 256))
+		("n", (BYTE * 256))
 	]
 
 class XECRYPT_RSAPUB_4096(BigEndianStructure):
 	_fields_ = [
 		("rsa", XECRYPT_RSA),
-		("n", (c_ubyte * 512))
+		("n", (BYTE * 512))
 	]
 
 
 class XECRYPT_RSAPRV_1024(BigEndianStructure):
 	_fields_ = [
 		("rsa", XECRYPT_RSA),
-		("n", (c_ubyte * 128)),
-		("p", (c_ubyte * 64)),
-		("q", (c_ubyte * 64)),
-		("dp", (c_ubyte * 64)),
-		("dq", (c_ubyte * 64)),
-		("cr", (c_ubyte * 64)),
+		("n", (BYTE * 128)),
+		("p", (BYTE * 64)),
+		("q", (BYTE * 64)),
+		("dp", (BYTE * 64)),
+		("dq", (BYTE * 64)),
+		("cr", (BYTE * 64)),
 	]
 
 class XECRYPT_RSAPRV_1536(BigEndianStructure):
 	_fields_ = [
 		("rsa", XECRYPT_RSA),
-		("n", (c_ubyte * 192)),
-		("p", (c_ubyte * 96)),
-		("q", (c_ubyte * 96)),
-		("dp", (c_ubyte * 96)),
-		("dq", (c_ubyte * 96)),
-		("cr", (c_ubyte * 96)),
+		("n", (BYTE * 192)),
+		("p", (BYTE * 96)),
+		("q", (BYTE * 96)),
+		("dp", (BYTE * 96)),
+		("dq", (BYTE * 96)),
+		("cr", (BYTE * 96)),
 	]
 
 class XECRYPT_RSAPRV_2048(BigEndianStructure):
 	_fields_ = [
 		("rsa", XECRYPT_RSA),
-		("n", (c_ubyte * 256)),
-		("p", (c_ubyte * 128)),
-		("q", (c_ubyte * 128)),
-		("dp", (c_ubyte * 128)),
-		("dq", (c_ubyte * 128)),
-		("cr", (c_ubyte * 128)),
+		("n", (BYTE * 256)),
+		("p", (BYTE * 128)),
+		("q", (BYTE * 128)),
+		("dp", (BYTE * 128)),
+		("dq", (BYTE * 128)),
+		("cr", (BYTE * 128)),
 	]
 
 class XECRYPT_RSAPRV_4096(BigEndianStructure):
 	_fields_ = [
 		("rsa", XECRYPT_RSA),
-		("n", (c_ubyte * 512)),
-		("p", (c_ubyte * 256)),
-		("q", (c_ubyte * 256)),
-		("dp", (c_ubyte * 256)),
-		("dq", (c_ubyte * 256)),
-		("cr", (c_ubyte * 256)),
+		("n", (BYTE * 512)),
+		("p", (BYTE * 256)),
+		("q", (BYTE * 256)),
+		("dp", (BYTE * 256)),
+		("dq", (BYTE * 256)),
+		("cr", (BYTE * 256)),
 	]
 
 class SMALLBLOCK(BigEndianStructure):
@@ -236,23 +237,23 @@ class SMALLBLOCK(BigEndianStructure):
 		return res
 
 	_fields_ = [
-		("block_id_1", c_ubyte),  # lba/id = (((BlockID0<<8)&0xF)+(BlockID1&0xFF))
-		("block_id_0", c_ubyte, 4),
-		("fs_unused_0", c_ubyte, 4),
-		("fs_sequence_0", c_ubyte),
-		("fs_sequence_1", c_ubyte),
-		("fs_sequence_2", c_ubyte),
-		("bad_block", c_ubyte),
-		("fs_sequence_3", c_ubyte),
-		("fs_size_1", c_ubyte),  # (((FsSize0<<8)&0xFF)+(FsSize1&0xFF)) = cert size
-		("fs_size_0", c_ubyte),
-		("fs_page_count", c_ubyte),  # free pages left in block (ie: if 3 pages are used by cert then this would be 29:0x1d)
-		("fs_unused_1", c_ubyte * 2),
-		("fs_block_type", c_ubyte, 6),
-		("ecc_3", c_ubyte, 2),  # 26 bit ECD
-		("ecc_2", c_ubyte),
-		("ecc_1", c_ubyte),
-		("ecc_0", c_ubyte)
+		("block_id_1", BYTE),  # lba/id = (((BlockID0<<8)&0xF)+(BlockID1&0xFF))
+		("block_id_0", BYTE, 4),
+		("fs_unused_0", BYTE, 4),
+		("fs_sequence_0", BYTE),
+		("fs_sequence_1", BYTE),
+		("fs_sequence_2", BYTE),
+		("bad_block", BYTE),
+		("fs_sequence_3", BYTE),
+		("fs_size_1", BYTE),  # (((FsSize0<<8)&0xFF)+(FsSize1&0xFF)) = cert size
+		("fs_size_0", BYTE),
+		("fs_page_count", BYTE),  # free pages left in block (ie: if 3 pages are used by cert then this would be 29:0x1d)
+		("fs_unused_1", BYTE * 2),
+		("fs_block_type", BYTE, 6),
+		("ecc_3", BYTE, 2),  # 26 bit ECD
+		("ecc_2", BYTE),
+		("ecc_1", BYTE),
+		("ecc_0", BYTE)
 	]
 
 class BIGONSMALL(BigEndianStructure):
@@ -266,23 +267,23 @@ class BIGONSMALL(BigEndianStructure):
 		return res
 		
 	_fields_ = [
-		("fs_sequence_0", c_ubyte),
-		("block_id_1", c_ubyte),  # lba/id = (((BlockID0<<8)&0xF)+(BlockID1&0xFF))
-		("block_id_0", c_ubyte, 4),
-		("fs_unused_0", c_ubyte, 4),
-		("fs_sequence_1", c_ubyte),
-		("fs_sequence_2", c_ubyte),
-		("bad_block", c_ubyte),
-		("fs_sequence_3", c_ubyte),
-		("fs_size_1", c_ubyte),  # (((FsSize0<<8)&0xFF)+(FsSize1&0xFF)) = cert size
-		("fs_size_0", c_ubyte),
-		("fs_page_count", c_ubyte),  # free pages left in block (ie: if 3 pages are used by cert then this would be 29:0x1d)
-		("fs_unused_1", c_ubyte * 2),
-		("fs_block_type", c_ubyte, 6),
-		("ecc_3", c_ubyte, 2),  # 26 bit ECD
-		("ecc_2", c_ubyte),
-		("ecc_1", c_ubyte),
-		("ecc_0", c_ubyte)
+		("fs_sequence_0", BYTE),
+		("block_id_1", BYTE),  # lba/id = (((BlockID0<<8)&0xF)+(BlockID1&0xFF))
+		("block_id_0", BYTE, 4),
+		("fs_unused_0", BYTE, 4),
+		("fs_sequence_1", BYTE),
+		("fs_sequence_2", BYTE),
+		("bad_block", BYTE),
+		("fs_sequence_3", BYTE),
+		("fs_size_1", BYTE),  # (((FsSize0<<8)&0xFF)+(FsSize1&0xFF)) = cert size
+		("fs_size_0", BYTE),
+		("fs_page_count", BYTE),  # free pages left in block (ie: if 3 pages are used by cert then this would be 29:0x1d)
+		("fs_unused_1", BYTE * 2),
+		("fs_block_type", BYTE, 6),
+		("ecc_3", BYTE, 2),  # 26 bit ECD
+		("ecc_2", BYTE),
+		("ecc_1", BYTE),
+		("ecc_0", BYTE)
 	]
 
 class BIGBLOCK(BigEndianStructure):
@@ -305,23 +306,23 @@ class BIGBLOCK(BigEndianStructure):
 		return res
 
 	_fields_ = [
-		("bad_block", c_ubyte),
-		("block_id_1", c_ubyte),  # lba/id = (((BlockID0<<8)&0xF)+(BlockID1&0xFF))
-		("block_id_0", c_ubyte, 4),
-		("fs_unused_0", c_ubyte, 4),
-		("fs_sequence_1", c_ubyte),
-		("fs_sequence_2", c_ubyte),
-		("fs_sequence_0", c_ubyte),
-		("fs_sequence_3", c_ubyte),
-		("fs_size_1", c_ubyte),  # FS: 06 (system reserve block number) else (((FsSize0<<8)&0xFF)+(FsSize1&0xFF)) = cert size
-		("fs_size_0", c_ubyte),  # FS: 20 (size of flash filesys in smallblocks >>5)
-		("fs_page_count", c_ubyte),  # FS: 04 (system config reserve) free pages left in block (multiples of 4 pages, ie if 3f then 3f*4 pages are free after)
-		("fs_unused_1", c_ubyte * 2),
-		("fs_block_type", c_ubyte, 6),
-		("ecc_3", c_ubyte, 2),  # 26 bit ECD
-		("ecc_2", c_ubyte),
-		("ecc_1", c_ubyte),
-		("ecc_0", c_ubyte)
+		("bad_block", BYTE),
+		("block_id_1", BYTE),  # lba/id = (((BlockID0<<8)&0xF)+(BlockID1&0xFF))
+		("block_id_0", BYTE, 4),
+		("fs_unused_0", BYTE, 4),
+		("fs_sequence_1", BYTE),
+		("fs_sequence_2", BYTE),
+		("fs_sequence_0", BYTE),
+		("fs_sequence_3", BYTE),
+		("fs_size_1", BYTE),  # FS: 06 (system reserve block number) else (((FsSize0<<8)&0xFF)+(FsSize1&0xFF)) = cert size
+		("fs_size_0", BYTE),  # FS: 20 (size of flash filesys in smallblocks >>5)
+		("fs_page_count", BYTE),  # FS: 04 (system config reserve) free pages left in block (multiples of 4 pages, ie if 3f then 3f*4 pages are free after)
+		("fs_unused_1", BYTE * 2),
+		("fs_block_type", BYTE, 6),
+		("ecc_3", BYTE, 2),  # 26 bit ECD
+		("ecc_2", BYTE),
+		("ecc_1", BYTE),
+		("ecc_0", BYTE)
 	]
 
 # utilities
