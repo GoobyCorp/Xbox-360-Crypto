@@ -173,7 +173,7 @@ _start:
 #   DVDAuth2 retail key
 #     note: should stay constant
 # ============================================================================
-	MAKEPATCH 0x00010d08
+	MAKEPATCH 0x00010D08
 0:
 	.long 0xD1E3B33A
 	.long 0x6C1EF770
@@ -184,7 +184,7 @@ _start:
 # ============================================================================
 #	HvxDvdAuthRecordXControl  Remove signature check
 # ============================================================================
-	MAKEPATCH 0x00026C04 
+	MAKEPATCH 0x00026C04
 0:
 	li  %r3, 1
 9:
