@@ -198,8 +198,15 @@ class ShadowbootImage:
 	sf_nonce = None
 	sf_salt = None
 	se_digest = None
+	# bootloaders
+	sb_build = None
+	sc_build = None
+	sd_build = None
+	se_build = None
 	# kernel
 	kernel_version = None
+	# HV
+	hypervisor_version = None
 	# SMC
 	console_type = None
 	smc_version = None
@@ -294,7 +301,12 @@ class ShadowbootImage:
 		self.se_digest = None
 		self.console_type = None
 		self.smc_version = None
+		self.sb_build = None
+		self.sc_build = None
+		self.sd_build = None
+		self.se_build = None
 		self.kernel_version = None
+		self.hypervisor_version = None
 
 	def read_header(self, header_type):
 		return header_type.from_buffer_copy(self._stream.read(sizeof(header_type)))
@@ -452,7 +464,13 @@ class ShadowbootImage:
 				"Winchester"
 			][num >> 4 & 15]
 			self.smc_version = f"{num >> 4 & 15}.{num & 15} ({self.smc_data[257]}.{self.smc_data[258]})"
-		(self.kernel_version,) = unpack_from(">H", self.kernel_data, 0x40C)
+		# (self.kernel_version,) = unpack_from(">H", self.kernel_data, 0x40C)
+		self.sb_build = self.img_map["SB"]["header"].header.build
+		self.sc_build = self.img_map["SC"]["header"].header.build
+		self.sd_build = self.img_map["SD"]["header"].header.build
+		self.se_build = self.img_map["SE"]["header"].header.build
+		(self.hypervisor_version,) = unpack_from(">H", self.hypervisor_data, 0x10)
+		self.kernel_version = self.se_build
 
 	def check_signature_sb_2bl(self) -> bool:
 		sb_hash = XeCryptRotSumSha(self.sb_data[:0x10] + self.sb_data[0x140:])  # skips the nonce and signature
@@ -825,9 +843,10 @@ def main() -> None:
 	elif args.command == "extract":
 		img = ShadowbootImage.parse(read_file(args.input), not args.nochecks)
 
-		print(f"Console Type:   {img.console_type}")
-		print(f"SMC Version:    {img.smc_version}")
-		print(f"Kernel Version: {img.kernel_version}")
+		print(f"Console Type:       {img.console_type}")
+		print(f"SMC Version:        {img.smc_version}")
+		print(f"Kernel Version:     {img.kernel_version}")
+		print(f"HyperVisor Version: {img.hypervisor_version}")
 
 		if args.all or args.smc:
 			write_file(join(args.output, "SMC_dec.bin"), img.smc_data)
@@ -861,7 +880,25 @@ def main() -> None:
 
 		print(f"Console Type:   {img.console_type}")
 		print(f"SMC Version:    {img.smc_version}")
+		print(f"SB Version:     {img.sb_build}")
+		print(f"SC Version:     {img.sc_build}")
+		print(f"SD Version:     {img.sd_build}")
+		print(f"SE Version:     {img.se_build}")
+		print(f"HV Version:     {img.hypervisor_version}")
 		print(f"Kernel Version: {img.kernel_version}")
+
+		is_retail = img.hypervisor_data[0] == 0x4E
+		is_testkit = bytes.fromhex("5C746573746B69745C") in img.kernel_data
+
+		if is_retail:
+			print("Main Menu:      Dashboard")
+		else:
+			print("Main Menu:      XShell")
+
+		if is_testkit:
+			print("Hardware:       Test Kit")
+		else:
+			print("Hardware:       Development Kit")
 	elif args.command == "test":
 		#sb = ShadowbootImage(read_file("C://Users/John/Desktop/xboxrom_13146_patched.bin"), False)
 		#write_file("C://Users/John/Desktop/hv.bin", sb.hypervisor_data)
