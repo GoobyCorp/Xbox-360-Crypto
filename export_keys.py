@@ -14,7 +14,7 @@ def main() -> None:
 	prv_key = Path("Keys/custom_prv.bin").read_bytes()
 	d = urandom(0x100)
 	h = XeCryptRotSumSha(d)
-	s = XeCryptBnQwBeSigCreate(h, b"niggers", prv_key)
+	s = XeCryptBnQwBeSigCreate(h, b"SALTTEST", prv_key)
 	s = XeCryptBnQwNeRsaPrvCrypt(s, prv_key)
 
 	lang_format(d, var_name="TestData")
