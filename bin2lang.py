@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
 
-from io import StringIO
+from pathlib import Path
 from enum import IntEnum
 from os.path import isfile
+from io import BytesIO, StringIO
 from argparse import ArgumentParser
+from typing import Union, BinaryIO, TextIO
 
 lowercase = lambda s: s.lower()
 
@@ -16,79 +18,90 @@ class Language(IntEnum):
 	PHP_NEW   = 5
 	PHP_OLD   = 6
 
-def lang_format(in_file: str, out_file: str = None, language: Language = Language.CPLUSPLUS, var_name: str = "data", byte_count: int = 16) -> str:
-	with open(in_file, "rb") as fr:
-		with StringIO() as sio:
-			if language == Language.PYTHON:
-				print(f"{var_name} = bytearray([", file=sio)
-				lines = []
-				while True:
-					data = fr.read(byte_count)
-					if not data:
-						break
-					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
-				lines[-1] = lines[-1].rstrip(",")
-				[print(x, file=sio) for x in lines]
-				print("])", file=sio)
-			elif language in [Language.C, Language.CPLUSPLUS]:
-				print("#ifndef BYTE", file=sio)
-				print("typedef unsigned char BYTE", file=sio)
-				print("#endif", file=sio)
-				print(file=sio)
-				print(f"#ifndef __{var_name}__", file=sio)
-				print(f"#define __{var_name}__", file=sio)
-				print(f"BYTE {var_name}[] = {{", file=sio)
-				lines = []
-				while True:
-					data = fr.read(byte_count)
-					if not data:
-						break
-					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
-				lines[-1] = lines[-1].rstrip(",")
-				[print(x, file=sio) for x in lines]
-				print("};", file=sio)
-				print("#endif", file=sio)
-			elif language == Language.CSHARP:
-				print(f"#region {var_name}", file=sio)
-				print(f"byte[] {var_name} = {{", file=sio)
-				lines = []
-				while True:
-					data = fr.read(byte_count)
-					if not data:
-						break
-					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
-				lines[-1] = lines[-1].rstrip(",")
-				[print(x, file=sio) for x in lines]
-				print("};", file=sio)
-				print("#endregion", file=sio)
-			elif language in [Language.PHP, Language.PHP_NEW]:  # using fast arrays
-				print(f"${var_name} = [", file=sio)
-				lines = []
-				while True:
-					data = fr.read(byte_count)
-					if not data:
-						break
-					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
-				lines[-1] = lines[-1].rstrip(",")
-				[print(x, file=sio) for x in lines]
-				print("];", file=sio)
-			elif language == Language.PHP_OLD:  # using slow arrays
-				print(f"${var_name} = array(", file=sio)
-				lines = []
-				while True:
-					data = fr.read(byte_count)
-					if not data:
-						break
-					lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
-				lines[-1] = lines[-1].rstrip(",")
-				[print(x, file=sio) for x in lines]
-				print(");", file=sio)
+def lang_format(din: Union[str, bytes, bytearray], dout: Union[str, TextIO] = None, language: Language = Language.CPLUSPLUS, var_name: str = "data", byte_count: int = 16) -> str:
+	sin: BinaryIO = None
+	if type(din) == str:
+		sin = open(din, "rb")
+	elif type(din) in [bytes, bytearray]:
+		sin = BytesIO(din)
 
-			data = sio.getvalue()
+	with StringIO() as sio:
+		if language == Language.PYTHON:
+			print(f"{var_name} = bytearray([", file=sio)
+			lines = []
+			while True:
+				data = sin.read(byte_count)
+				if not data:
+					break
+				lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
+			lines[-1] = lines[-1].rstrip(",")
+			[print(x, file=sio) for x in lines]
+			print("])", file=sio)
+		elif language in [Language.C, Language.CPLUSPLUS]:
+			print("#ifndef BYTE", file=sio)
+			print("typedef unsigned char BYTE", file=sio)
+			print("#endif", file=sio)
+			print(file=sio)
+			print(f"#ifndef __{var_name}__", file=sio)
+			print(f"#define __{var_name}__", file=sio)
+			print(f"BYTE {var_name}[] = {{", file=sio)
+			lines = []
+			while True:
+				data = sin.read(byte_count)
+				if not data:
+					break
+				lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
+			lines[-1] = lines[-1].rstrip(",")
+			[print(x, file=sio) for x in lines]
+			print("};", file=sio)
+			print("#endif", file=sio)
+		elif language == Language.CSHARP:
+			print(f"#region {var_name}", file=sio)
+			print(f"byte[] {var_name} = {{", file=sio)
+			lines = []
+			while True:
+				data = sin.read(byte_count)
+				if not data:
+					break
+				lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
+			lines[-1] = lines[-1].rstrip(",")
+			[print(x, file=sio) for x in lines]
+			print("};", file=sio)
+			print("#endregion", file=sio)
+		elif language in [Language.PHP, Language.PHP_NEW]:  # using fast arrays
+			print(f"${var_name} = [", file=sio)
+			lines = []
+			while True:
+				data = sin.read(byte_count)
+				if not data:
+					break
+				lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
+			lines[-1] = lines[-1].rstrip(",")
+			[print(x, file=sio) for x in lines]
+			print("];", file=sio)
+		elif language == Language.PHP_OLD:  # using slow arrays
+			print(f"${var_name} = array(", file=sio)
+			lines = []
+			while True:
+				data = sin.read(byte_count)
+				if not data:
+					break
+				lines.append("\t" + ", ".join([f"0x{x:02X}" for x in data]) + ",")
+			lines[-1] = lines[-1].rstrip(",")
+			[print(x, file=sio) for x in lines]
+			print(");", file=sio)
 
-	if out_file is not None:
-		with open(out_file, "w") as f:
-			f.write(data)
+		data = sio.getvalue()
+
+	# close input stream
+	sin.close()
+
+	if type(dout) == str:
+		Path(dout).write_text(data)
+	elif type(dout) == TextIO:
+		dout.write(data)
+	else:
+		print(data)
 
 	return data
 
