@@ -71,7 +71,7 @@ def HMAC_RC4_decrypt(key: (bytes, bytearray), enc_data: (bytes, bytearray), msg_
 	assert checksum == XeCryptHmacMd5(k2, confounder + data), "Invalid HMAC"
 	return confounder + data
 
-def compute_client_name(console_id: (bytes, bytearray)) -> (bytes, bytearray):
+def compute_client_name(console_id: (bytes, bytearray)) -> bytes:
 	num = 0
 	for i in range(5):
 		num = (num | console_id[i]) << 8
@@ -113,16 +113,10 @@ def get_title_auth_data(key: (bytes, bytearray), data: (bytes, bytearray)) -> (b
 	pack_into("<66s", array, 16, data)
 	return array
 
-def get_xmacs_logon_key(stream) -> (bytes, bytearray):
+def get_xmacs_logon_key(serial_num: bytes, console_cert: bytes, console_prv_key: bytes, console_id: bytes) -> (bytes, bytearray):
 	rsa_prov = PKCS1_OAEP.new(XeCryptBnQwNeRsaKeyToRsaProv(XMACS_RSA_PUB_2048))
-	rand_key = urandom(16)  # get_seeded_random(get_tick_count(), 16)
+	rand_key = urandom(16)
 	array_2 = reverse(rsa_prov.encrypt(rand_key))
-	# array_3 = bytearray(read_file("bin/KV/XMACSREQ.bin"))
-	# pack_into("<256s", array_3, 0x2C, array_2)
-	serial_num = stream.read_ubytes_at(0xB0, 12)
-	console_cert = stream.read_ubytes_at(0x9C8, 0x1A8)
-	console_prv_key = stream.read_ubytes_at(0x298, 0x1D0)
-	console_id = stream.read_ubytes_at(0x9CA, 5)
 
 	client_name = compute_client_name(console_id)
 	rsa_prov = PKCS1_v1_5.new(XeCryptBnQwNeRsaKeyToRsaProv(console_prv_key))
@@ -131,14 +125,15 @@ def get_xmacs_logon_key(stream) -> (bytes, bytearray):
 	enc_ts = HMAC_RC4_encrypt(rand_key, ts, 1)
 	array_7 = reverse(rsa_prov.sign(SHA1.new(file_time + serial_num + XeCryptSha(rand_key))))
 
+	# can't use StreamIO inside of StreamIO ???
 	with StreamIO(read_file("bin/KV/XMACSREQ.bin"), Endian.BIG) as sio:
-		sio.write_ubytes_at(0x2C, array_2)
-		sio.write_ubytes_at(0x12C, file_time)
-		sio.write_ubytes_at(0x134, serial_num)
-		sio.write_ubytes_at(0x140, array_7)
-		sio.write_ubytes_at(0x1C0, console_cert)
-		sio.write_ubytes_at(0x3E0, enc_ts)
-		sio.write_ubytes_at(0x430, client_name)
+		sio.write_bytes_at(0x2C, array_2)
+		sio.write_bytes_at(0x12C, file_time)
+		sio.write_bytes_at(0x134, serial_num)
+		sio.write_bytes_at(0x140, array_7)
+		sio.write_bytes_at(0x1C0, console_cert)
+		sio.write_bytes_at(0x3E0, enc_ts)
+		sio.write_bytes_at(0x430, client_name[:15])
 		xmacs_req = sio.getvalue()
 
 	with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
@@ -161,10 +156,14 @@ def main() -> None:
 	assert crc32(XMACS_RSA_PUB_2048) == 0xE4F01473, "Invalid XMACS public key"
 
 	with StreamIO(args.input, Endian.BIG) as sio:
-		xmacs_logon_key = get_xmacs_logon_key(sio)
-		console_id = sio.read_ubytes_at(0x9CA, 5)
+		serial_num = sio.read_bytes_at(0xB0, 12)
+		console_cert = sio.read_bytes_at(0x9C8, 0x1A8)
+		console_prv_key = sio.read_bytes_at(0x298, 0x1D0)
+		console_id = sio.read_bytes_at(0x9CA, 5)
 		# consoleCertSize - abConsolePubKeyModulus
-		src_arr_0 = XeCryptSha(sio.read_ubytes_at(0x9C8, 0xA8))
+		src_arr_0 = XeCryptSha(sio.read_bytes_at(0x9C8, 0xA8))
+
+	xmacs_logon_key = get_xmacs_logon_key(serial_num, console_cert, console_prv_key, console_id)
 
 	client_name = compute_client_name(console_id)
 	print("Attempting logon for \"" + client_name.decode("ASCII") + "\"...")
@@ -172,9 +171,9 @@ def main() -> None:
 
 	ts = generate_timestamp()
 	with StreamIO(read_file("bin/KV/apReq1.bin"), Endian.BIG) as sio:
-		sio.write_ubytes_at(258, client_name[:24])
-		sio.write_ubytes_at(36, src_arr_0[:20])
-		sio.write_ubytes_at(176, HMAC_RC4_encrypt(xmacs_logon_key, ts, 1))
+		sio.write_bytes_at(258, client_name[:24])
+		sio.write_bytes_at(36, src_arr_0[:20])
+		sio.write_bytes_at(176, HMAC_RC4_encrypt(xmacs_logon_key, ts, 1))
 		ap_req_1 = sio.getvalue()
 
 	with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
@@ -189,10 +188,10 @@ def main() -> None:
 
 	ts = generate_timestamp()
 	with StreamIO(read_file("bin/KV/apReq2.bin"), Endian.BIG) as sio:
-		sio.write_ubytes_at(286, client_name)
-		sio.write_ubytes_at(36, src_arr_0)
-		sio.write_ubytes_at(204, HMAC_RC4_encrypt(xmacs_logon_key, ts, 1))
-		sio.write_ubytes_at(68, array_5)
+		sio.write_bytes_at(286, client_name)
+		sio.write_bytes_at(36, src_arr_0)
+		sio.write_bytes_at(204, HMAC_RC4_encrypt(xmacs_logon_key, ts, 1))
+		sio.write_bytes_at(68, array_5)
 		ap_req_2 = sio.getvalue()
 
 	with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
