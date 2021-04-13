@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
-# reference: https://tools.ietf.org/html/draft-jaganathan-rc4-hmac-03
+# References:
+# https://tools.ietf.org/html/draft-jaganathan-rc4-hmac-03
 
 __description__ = "A script to check if Xbox 360 keyvaults are banned or not"
 
@@ -116,8 +117,8 @@ def get_xmacs_logon_key(stream) -> (bytes, bytearray):
 	rsa_prov = PKCS1_OAEP.new(XeCryptBnQwNeRsaKeyToRsaProv(XMACS_RSA_PUB_2048))
 	rand_key = urandom(16)  # get_seeded_random(get_tick_count(), 16)
 	array_2 = reverse(rsa_prov.encrypt(rand_key))
-	array_3 = bytearray(read_file("bin/KV/XMACSREQ.bin"))
-	pack_into("<256s", array_3, 0x2C, array_2)
+	# array_3 = bytearray(read_file("bin/KV/XMACSREQ.bin"))
+	# pack_into("<256s", array_3, 0x2C, array_2)
 	serial_num = stream.read_ubytes_at(0xB0, 12)
 	console_cert = stream.read_ubytes_at(0x9C8, 0x1A8)
 	console_prv_key = stream.read_ubytes_at(0x298, 0x1D0)
@@ -129,18 +130,23 @@ def get_xmacs_logon_key(stream) -> (bytes, bytearray):
 	ts = generate_timestamp()
 	enc_ts = HMAC_RC4_encrypt(rand_key, ts, 1)
 	array_7 = reverse(rsa_prov.sign(SHA1.new(file_time + serial_num + XeCryptSha(rand_key))))
-	pack_into("<8s", array_3, 0x12C, file_time)
-	pack_into("<12s", array_3, 0x134, serial_num)
-	pack_into("<128s", array_3, 0x140, array_7)
-	pack_into("<424s", array_3, 0x1C0, console_cert)
-	pack_into("<52s", array_3, 0x3E0, enc_ts)
-	pack_into("<15s", array_3, 0x430, client_name)
-	sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-	sock.connect((XEAS_REALM, SERVER_PORT))
-	sock.send(array_3)
-	src_arr_4 = sock.recv(BUFF_SIZE)
-	sock.close()
-	array_8 = src_arr_4[53:53 + 108]
+
+	with StreamIO(read_file("bin/KV/XMACSREQ.bin"), Endian.BIG) as sio:
+		sio.write_ubytes_at(0x2C, array_2)
+		sio.write_ubytes_at(0x12C, file_time)
+		sio.write_ubytes_at(0x134, serial_num)
+		sio.write_ubytes_at(0x140, array_7)
+		sio.write_ubytes_at(0x1C0, console_cert)
+		sio.write_ubytes_at(0x3E0, enc_ts)
+		sio.write_ubytes_at(0x430, client_name)
+		xmacs_req = sio.getvalue()
+
+	with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
+		sock.connect((XEAS_REALM, SERVER_PORT))
+		sock.send(xmacs_req)
+		xmacs_res = sock.recv(BUFF_SIZE)
+
+	array_8 = xmacs_res[53:53 + 108]
 	src_arr_5 = HMAC_RC4_decrypt(compute_kdc_nonce(rand_key), array_8, 1203)
 	return src_arr_5[76:76 + 16]
 
@@ -157,70 +163,78 @@ def main() -> None:
 	with StreamIO(args.input, Endian.BIG) as sio:
 		xmacs_logon_key = get_xmacs_logon_key(sio)
 		console_id = sio.read_ubytes_at(0x9CA, 5)
+		# consoleCertSize - abConsolePubKeyModulus
 		src_arr_0 = XeCryptSha(sio.read_ubytes_at(0x9C8, 0xA8))
-	array_1 = bytearray(read_file("bin/KV/apReq1.bin"))
-	array_2 = compute_client_name(console_id)
-	print("Attempting logon for \"" + array_2.decode("ASCII") + "\"...")
+
+	client_name = compute_client_name(console_id)
+	print("Attempting logon for \"" + client_name.decode("ASCII") + "\"...")
 	print("Creating Kerberos AS-REQ...")
-	pack_into("<24s", array_1, 258, array_2[:24])
-	pack_into("<20s", array_1, 36, src_arr_0[:20])
+
 	ts = generate_timestamp()
-	pack_into("<52s", array_1, 176, HMAC_RC4_encrypt(xmacs_logon_key, ts, 1))
+	with StreamIO(read_file("bin/KV/apReq1.bin"), Endian.BIG) as sio:
+		sio.write_ubytes_at(258, client_name[:24])
+		sio.write_ubytes_at(36, src_arr_0[:20])
+		sio.write_ubytes_at(176, HMAC_RC4_encrypt(xmacs_logon_key, ts, 1))
+		ap_req_1 = sio.getvalue()
+
 	with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
 		sock.connect((XEAS_REALM, SERVER_PORT))
-		sock.send(array_1)
+		sock.send(ap_req_1)
 		print("Sending Kerberos AS-REQ...")
-		array_4 = sock.recv(BUFF_SIZE)
+		ap_res_1 = sock.recv(BUFF_SIZE)
+
 	print("AS replied wanting pre-auth data...")
 	print("Creating new Kerberos AS-REQ...")
-	array_5 = array_4[-16:]
-	array_6 = bytearray(read_file("bin/KV/apReq2.bin"))
-	pack_into("<24s", array_6, 286, array_2)
-	pack_into("<20s", array_6, 36, src_arr_0)
+	array_5 = ap_res_1[-16:]
+
 	ts = generate_timestamp()
-	pack_into("<52s", array_6, 204, HMAC_RC4_encrypt(xmacs_logon_key, ts, 1))
-	pack_into("<16s", array_6, 68, array_5)
+	with StreamIO(read_file("bin/KV/apReq2.bin"), Endian.BIG) as sio:
+		sio.write_ubytes_at(286, client_name)
+		sio.write_ubytes_at(36, src_arr_0)
+		sio.write_ubytes_at(204, HMAC_RC4_encrypt(xmacs_logon_key, ts, 1))
+		sio.write_ubytes_at(68, array_5)
+		ap_req_2 = sio.getvalue()
+
 	with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
 		sock.connect((XEAS_REALM, SERVER_PORT))
-		sock.send(array_6)
+		sock.send(ap_req_2)
 		print("Sending Kerberos AS-REQ...")
-		array_8 = sock.recv(BUFF_SIZE)
+		ap_res_2 = sock.recv(BUFF_SIZE)
+
 	print("Got AS-REP...")
 	print("Decrypting our session key...")
 	print("Creating Kerberos TGS-REQ...")
-	# write_file("bin/KV/APRESP.bin", array_8)
-	array_9 = array_8[-210:]
+	array_9 = ap_res_2[-210:]
 	array_10 = HMAC_RC4_decrypt(xmacs_logon_key, array_9, 8)
 	array_11 = array_10[27:27 + 16]
-	# write_file("bin/KV/test.bin", array_10)
+
 	print("Setting TGS ticket...")
-	array_12 = array_8[168:168 + 345]
-	array_13 = bytearray(read_file("bin/KV/TGSREQ.bin"))
-	pack_into("<345s", array_13, 437, array_12[:345])
-	array_14 = bytearray(read_file("bin/KV/authenticator.bin"))
-	pack_into("<15s", array_14, 40, array_2[:15])
+	array_12 = ap_res_2[168:168 + 345]
+
+	tgs_req = bytearray(read_file("bin/KV/TGSREQ.bin"))
+	auth_req = bytearray(read_file("bin/KV/authenticator.bin"))
 	s = datetime.utcnow().strftime("%Y%m%d%H%M%S") + "Z"
-	pack_into("<15s", array_14, 109, s.encode("ASCII"))
-	pack_into("<16s", array_14, 82, XeCryptMd5(array_13[954:954 + 75]))
-	pack_into("<153s", array_13, 799, HMAC_RC4_encrypt(array_11, array_14, 7))
+	pack_into("<15s", auth_req, 40, client_name[:15])
+	pack_into("<15s", auth_req, 109, s.encode("ASCII"))
+	pack_into("<16s", auth_req, 82, XeCryptMd5(tgs_req[954:954 + 75]))
+	pack_into("<345s", tgs_req, 437, array_12[:345])
+	pack_into("<153s", tgs_req, 799, HMAC_RC4_encrypt(array_11, auth_req, 7))
+
 	key = compute_kdc_nonce(array_11)
-	array_15 = bytearray(read_file("bin/KV/servicereq.bin"))
-	pack_into("<150s", array_13, 55, HMAC_RC4_encrypt(key, array_15, 1201))
-	array_16 = array_6[116:116 + 66]
-	pack_into("<82s", array_13, 221, get_title_auth_data(array_11, array_16))
+	service_req = bytearray(read_file("bin/KV/servicereq.bin"))
+	pack_into("<150s", tgs_req, 55, HMAC_RC4_encrypt(key, service_req, 1201))
+	array_16 = ap_req_2[116:116 + 66]
+	pack_into("<82s", tgs_req, 221, get_title_auth_data(array_11, array_16))
 	print("Sending our TGS-REQ...")
 	with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
 		sock.connect((XETGS_REALM, SERVER_PORT))
-		sock.send(array_13)
-		array_17 = sock.recv(BUFF_SIZE)
+		sock.send(tgs_req)
+		tgs_res = sock.recv(BUFF_SIZE)
+
 	print("Got TGS-REP...")
-	# write_file("bin/KV/tgsres.bin", array_17)
 	print("Decrypting logon status...")
-	array_18 = array_17[50:50 + 84]
+	array_18 = tgs_res[50:50 + 84]
 	value = HMAC_RC4_decrypt(key, array_18, 1202)
-	# array_19 = array_17[58:58 + 208]
-	# b0 = RC4_HMAC_decrypt(key, array_19, 1202)
-	# write_file("bin/KV/resp.bin", b0)
 	(logon_status_code,) = unpack_from("<I", value, 8)
 	print(f"Logon status: 0x{logon_status_code:04X}")
 	if logon_status_code != 0x8015190D:

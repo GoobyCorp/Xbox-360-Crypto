@@ -28,11 +28,11 @@ def main() -> None:
 				combined_code += code_line
 				print(code_line.hex().upper())
 				code = ", ".join([f"0x{x:02X}" for x in code_line])
-				code = f"BYTE code = {{ {code} }}; // {asm}"
+				code = f"BYTE code[] = {{ {code} }}; // {asm}"
 				print(code)
 			print(combined_code.hex().upper())
 			code = ", ".join([f"0x{x:02X}" for x in combined_code])
-			code = f"BYTE code = {{ {code} }};"
+			code = f"BYTE code[] = {{ {code} }};"
 			print(code)
 			capturing = False
 			continue
@@ -50,7 +50,7 @@ def main() -> None:
 			else:
 				print(code.hex().upper())
 				code = ", ".join([f"0x{x:02X}" for x in code])
-				code = f"BYTE code = {{ {code} }}; // {line}"
+				code = f"BYTE code[] = {{ {code} }}; // {line}"
 				print(code)
 		except Exception as e:
 			print(e.message)

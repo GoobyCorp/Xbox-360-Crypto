@@ -34,6 +34,8 @@ def main() -> None:
 					print(file.parent.joinpath(f"{KEY_NAMES[cksm]}.bin").absolute())
 					file.rename(file.parent.absolute().joinpath(f"{KEY_NAMES[cksm]}.bin"))
 					keys_found += 1
+			else:
+				print(f"Unknown key found with checksum 0x{cksm:04X}")
 
 	if keys_found != num_keys:
 		print("You're missing keys!")
