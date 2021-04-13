@@ -27,16 +27,6 @@ XETGS_REALM = "xetgs.gtm.xboxlive.com"
 SERVER_PORT = 88
 BUFF_SIZE = 4096
 
-"""
-struct EDATA {
-	struct HEADER {
-			OCTET Checksum[16];
-			OCTET Confounder[8];
-	} Header;
-	OCTET Data[0];
-} edata;
-"""
-
 def HMAC_RC4_encrypt(key: (bytes, bytearray), dec_data: (bytes, bytearray), msg_type: int) -> (bytes, bytearray):
 	k1 = XeCryptHmacMd5(key, msg_type.to_bytes(4, "little"))
 	k2 = k1  # no idea why this is done
@@ -133,7 +123,7 @@ def get_xmacs_logon_key(serial_num: bytes, console_cert: bytes, console_prv_key:
 		sio.write_bytes_at(0x140, array_7)
 		sio.write_bytes_at(0x1C0, console_cert)
 		sio.write_bytes_at(0x3E0, enc_ts)
-		sio.write_bytes_at(0x430, client_name[:15])
+		sio.write_bytes_at(0x430, client_name[:15])  # remove @xbox.com from the end
 		xmacs_req = sio.getvalue()
 
 	with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
