@@ -7,6 +7,7 @@ __description__ = "A script to check if Xbox 360 keyvaults are banned or not"
 
 import socket
 from os import urandom
+from typing import Union
 from binascii import crc32
 from datetime import datetime
 from struct import pack_into, unpack_from
@@ -27,7 +28,11 @@ XETGS_REALM = "xetgs.gtm.xboxlive.com"
 SERVER_PORT = 88
 BUFF_SIZE = 4096
 
-def HMAC_RC4_encrypt(key: (bytes, bytearray), dec_data: (bytes, bytearray), msg_type: int) -> (bytes, bytearray):
+# change these to match the latest kernel and dash.xex version
+XBOX_VERSION = b"2.00.17559.0"
+TITLE_VERSION = b"541366016"
+
+def HMAC_RC4_encrypt(key: (bytes, bytearray), dec_data: (bytes, bytearray), msg_type: int) -> bytes:
 	k1 = XeCryptHmacMd5(key, msg_type.to_bytes(4, "little"))
 	k2 = k1  # no idea why this is done
 
@@ -42,7 +47,7 @@ def HMAC_RC4_encrypt(key: (bytes, bytearray), dec_data: (bytes, bytearray), msg_
 	# refer to edata struct
 	return checksum + confounder + data
 
-def HMAC_RC4_decrypt(key: (bytes, bytearray), enc_data: (bytes, bytearray), msg_type: int) -> (bytes, bytearray):
+def HMAC_RC4_decrypt(key: (bytes, bytearray), enc_data: (bytes, bytearray), msg_type: int) -> Union[bytes, None]:
 	k1 = XeCryptHmacMd5(key, msg_type.to_bytes(4, "little"))
 	k2 = k1  # no idea why this is done
 
@@ -58,7 +63,8 @@ def HMAC_RC4_decrypt(key: (bytes, bytearray), enc_data: (bytes, bytearray), msg_
 	data = XeCryptRc4(data)
 
 	# check the checksum
-	assert checksum == XeCryptHmacMd5(k2, confounder + data), "Invalid HMAC"
+	if checksum != XeCryptHmacMd5(k2, confounder + data):
+		return None
 	return confounder + data
 
 def compute_client_name(console_id: (bytes, bytearray)) -> bytes:
@@ -78,17 +84,10 @@ def compute_kdc_nonce(key: (bytes, bytearray)) -> (bytes, bytearray):
 	key = XeCryptHmacMd5(key, bytes.fromhex("7369676E61747572656B657900"))
 	return XeCryptHmacMd5(key, XeCryptMd5(b"\x02\x04\x00\x00", b"\x00\x00\x00\x00"))
 
-# def get_tick_count() -> int:
-#	return int(uptime() * 1000)
-
 def get_file_time() -> int:
 	dt0 = datetime.strptime("12:00 AM, January 1, 1601 UTC", "%I:%M %p, %B %d, %Y %Z")
 	dt1 = datetime.utcnow()
 	return int((dt1 - dt0).total_seconds() * 10000000)
-
-# def get_seeded_random(seed: int, size: int) -> (bytes, bytearray):
-#	random.seed(seed)
-#	return random.getrandbits(size * 8).to_bytes(size, "little")
 
 def generate_timestamp() -> (bytes, bytearray):
 	array = bytearray(bytes.fromhex("301AA011180F32303132313231323139303533305AA10502030B3543"))
@@ -97,7 +96,7 @@ def generate_timestamp() -> (bytes, bytearray):
 	return array
 
 def get_title_auth_data(key: (bytes, bytearray), data: (bytes, bytearray)) -> (bytes, bytearray):
-	src_arr = XeCryptHmacSha(compute_kdc_nonce(key), data[:66])
+	src_arr = XeCryptHmacSha(compute_kdc_nonce(key), data)
 	array = bytearray(82)
 	pack_into("<16s", array, 0, src_arr[:16])
 	pack_into("<66s", array, 16, data)
@@ -106,7 +105,7 @@ def get_title_auth_data(key: (bytes, bytearray), data: (bytes, bytearray)) -> (b
 def get_xmacs_logon_key(serial_num: bytes, console_cert: bytes, console_prv_key: bytes, console_id: bytes) -> (bytes, bytearray):
 	rsa_prov = PKCS1_OAEP.new(XeCryptBnQwNeRsaKeyToRsaProv(XMACS_RSA_PUB_2048))
 	rand_key = urandom(16)
-	array_2 = reverse(rsa_prov.encrypt(rand_key))
+	enc_key = reverse(rsa_prov.encrypt(rand_key))
 
 	client_name = compute_client_name(console_id)
 	rsa_prov = PKCS1_v1_5.new(XeCryptBnQwNeRsaKeyToRsaProv(console_prv_key))
@@ -117,7 +116,10 @@ def get_xmacs_logon_key(serial_num: bytes, console_cert: bytes, console_prv_key:
 
 	# can't use StreamIO inside of StreamIO ???
 	with StreamIO(read_file("bin/KV/XMACSREQ.bin"), Endian.BIG) as sio:
-		sio.write_bytes_at(0x2C, array_2)
+		sio.write_bytes_at(0x395, XBOX_VERSION)
+		sio.write_bytes_at(0x3C0, TITLE_VERSION)
+
+		sio.write_bytes_at(0x2C, enc_key)
 		sio.write_bytes_at(0x12C, file_time)
 		sio.write_bytes_at(0x134, serial_num)
 		sio.write_bytes_at(0x140, array_7)
@@ -131,7 +133,7 @@ def get_xmacs_logon_key(serial_num: bytes, console_cert: bytes, console_prv_key:
 		sock.send(xmacs_req)
 		xmacs_res = sock.recv(BUFF_SIZE)
 
-	array_8 = xmacs_res[53:53 + 108]
+	array_8 = xmacs_res[0x35:0x35 + 108]
 	src_arr_5 = HMAC_RC4_decrypt(compute_kdc_nonce(rand_key), array_8, 1203)
 	return src_arr_5[76:76 + 16]
 
@@ -161,6 +163,9 @@ def main() -> None:
 
 	ts = generate_timestamp()
 	with StreamIO(read_file("bin/KV/apReq1.bin"), Endian.BIG) as sio:
+		sio.write_bytes_at(0x65, XBOX_VERSION)  # console version
+		sio.write_bytes_at(0x90, TITLE_VERSION)  # title version
+
 		sio.write_bytes_at(258, client_name[:24])
 		sio.write_bytes_at(36, src_arr_0[:20])
 		sio.write_bytes_at(176, HMAC_RC4_encrypt(xmacs_logon_key, ts, 1))
@@ -178,6 +183,9 @@ def main() -> None:
 
 	ts = generate_timestamp()
 	with StreamIO(read_file("bin/KV/apReq2.bin"), Endian.BIG) as sio:
+		sio.write_bytes_at(0x81, XBOX_VERSION)  # console version
+		sio.write_bytes_at(0xAC, TITLE_VERSION)  # title version
+
 		sio.write_bytes_at(286, client_name)
 		sio.write_bytes_at(36, src_arr_0)
 		sio.write_bytes_at(204, HMAC_RC4_encrypt(xmacs_logon_key, ts, 1))
@@ -201,13 +209,15 @@ def main() -> None:
 	array_12 = ap_res_2[168:168 + 345]
 
 	tgs_req = bytearray(read_file("bin/KV/TGSREQ.bin"))
-	auth_req = bytearray(read_file("bin/KV/authenticator.bin"))
+	auth = bytearray(read_file("bin/KV/authenticator.bin"))
 	s = datetime.utcnow().strftime("%Y%m%d%H%M%S") + "Z"
-	pack_into("<15s", auth_req, 40, client_name[:15])
-	pack_into("<15s", auth_req, 109, s.encode("ASCII"))
-	pack_into("<16s", auth_req, 82, XeCryptMd5(tgs_req[954:954 + 75]))
+	pack_into(f"<{len(XBOX_VERSION)}s", tgs_req, 0xFA, XBOX_VERSION)
+	pack_into(f"<{len(TITLE_VERSION)}s", tgs_req, 0x125, TITLE_VERSION)
+	pack_into("<15s", auth, 40, client_name[:15])  # remove @xbox.com from the end
+	pack_into("<15s", auth, 109, s.encode("ASCII"))
+	pack_into("<16s", auth, 82, XeCryptMd5(tgs_req[954:954 + 75]))
 	pack_into("<345s", tgs_req, 437, array_12[:345])
-	pack_into("<153s", tgs_req, 799, HMAC_RC4_encrypt(array_11, auth_req, 7))
+	pack_into("<153s", tgs_req, 799, HMAC_RC4_encrypt(array_11, auth, 7))
 
 	key = compute_kdc_nonce(array_11)
 	service_req = bytearray(read_file("bin/KV/servicereq.bin"))
