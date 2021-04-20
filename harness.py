@@ -4,6 +4,9 @@ from struct import unpack_from
 
 from XeCrypt import *
 
+# test data
+TEST_DATA: bytes = b""
+
 # RSA
 rsa_test_hash = bytes.fromhex("7A71F234F5EBF720C84A13A3C586478DCDE402B8")
 rsa_test_salt = b"XBOX_HAXXS"
@@ -87,7 +90,7 @@ def do_rsa_test() -> bool:
 def do_rc4_test() -> bool:
 	rc4_pass = True
 
-	(rc4_key, rc4_data) = unpack_from(f"<{0x10}s {0x10}s", test_data, 0)
+	(rc4_key, rc4_data) = unpack_from(f"<{0x10}s {0x10}s", TEST_DATA, 0)
 
 	print("starting RC4 tests...")
 	XeCryptRc4EcbKey(rc4_key)
@@ -115,7 +118,7 @@ def do_rc4_test() -> bool:
 def do_aes_test() -> bool:
 	aes_pass = True
 
-	(aes_key, aes_data) = unpack_from(f"<{XECRYPT_AES_KEY_SIZE}s {XECRYPT_AES_BLOCK_SIZE}s", test_data, 0)
+	(aes_key, aes_data) = unpack_from(f"<{XECRYPT_AES_KEY_SIZE}s {XECRYPT_AES_BLOCK_SIZE}s", TEST_DATA, 0)
 
 	print("starting AES tests...")
 	aes_data = XeCryptAesEcb(aes_key, aes_data, False)
@@ -135,7 +138,7 @@ def do_aes_test() -> bool:
 		print("FAILED")
 		aes_pass = False
 
-	(aes_key, aes_data, aes_feed) = unpack_from(f"<{XECRYPT_AES_KEY_SIZE}s {XECRYPT_AES_BLOCK_SIZE}s {XECRYPT_AES_FEED_SIZE}s", test_data, 0)
+	(aes_key, aes_data, aes_feed) = unpack_from(f"<{XECRYPT_AES_KEY_SIZE}s {XECRYPT_AES_BLOCK_SIZE}s {XECRYPT_AES_FEED_SIZE}s", TEST_DATA, 0)
 
 	XeCryptAesCbcKey(aes_key, aes_feed)
 	aes_data = XeCryptAes(aes_data, False)
@@ -163,7 +166,7 @@ def do_aes_test() -> bool:
 def do_des_test() -> bool:
 	des_pass = True
 
-	(des_key, des_data) = unpack_from(f"<{XECRYPT_DES_KEY_SIZE}s {XECRYPT_DES_BLOCK_SIZE}s", test_data, 0)
+	(des_key, des_data) = unpack_from(f"<{XECRYPT_DES_KEY_SIZE}s {XECRYPT_DES_BLOCK_SIZE}s", TEST_DATA, 0)
 	print("starting DES tests...")
 	des_data = XeCryptDesEcb(des_key, des_data, False)
 	print("    DES-ECB first round - ")
@@ -182,7 +185,7 @@ def do_des_test() -> bool:
 		print("FAILED")
 		des_pass = False
 
-	(des_key, des_feed, des_data) = unpack_from(f"<{XECRYPT_DES_KEY_SIZE}s {XECRYPT_DES_BLOCK_SIZE}s {XECRYPT_DES_BLOCK_SIZE * 8}s", test_data, 0)
+	(des_key, des_feed, des_data) = unpack_from(f"<{XECRYPT_DES_KEY_SIZE}s {XECRYPT_DES_BLOCK_SIZE}s {XECRYPT_DES_BLOCK_SIZE * 8}s", TEST_DATA, 0)
 
 	# des_data = XeCryptDesCbc(des_key, des_feed, des_data, False)
 	# print("    DES-CBC - ")
@@ -192,7 +195,7 @@ def do_des_test() -> bool:
 	#	print("FAILED")
 	#	des_pass = False
 
-	(des_key, des_data) = unpack_from(f"<{XECRYPT_DES3_KEY_SIZE}s {XECRYPT_DES3_BLOCK_SIZE}s", test_data, 0)
+	(des_key, des_data) = unpack_from(f"<{XECRYPT_DES3_KEY_SIZE}s {XECRYPT_DES3_BLOCK_SIZE}s", TEST_DATA, 0)
 
 	des_data = XeCryptDes3Ecb(des_key, des_data, False)
 	print("    DES3-ECB first round - ")
@@ -232,7 +235,7 @@ def do_md5_test() -> bool:
 
 	print("starting MD5 tests...")
 
-	md5_val = XeCryptMd5(test_data)
+	md5_val = XeCryptMd5(TEST_DATA)
 	print("    MD5 first round - ")
 	if md5_val == md5_digest:
 		print("OK")
@@ -249,7 +252,7 @@ def do_sha_test() -> bool:
 
 	print("starting SHA tests...")
 
-	sha_val = XeCryptSha(test_data)
+	sha_val = XeCryptSha(TEST_DATA)
 	print("    SHA first round - ")
 	if sha_val == sha_digest:
 		print("OK")
@@ -257,7 +260,7 @@ def do_sha_test() -> bool:
 		print("FAILED")
 		sha_pass = False
 
-	sha_val = XeCryptRotSumSha(test_data)
+	sha_val = XeCryptRotSumSha(TEST_DATA)
 	print("    SHA second round (ROTSUMSHA) - ")
 	if sha_val == rotsumsha_digest:
 		print("OK")
@@ -265,7 +268,7 @@ def do_sha_test() -> bool:
 		print("FAILED")
 		sha_pass = False
 
-	sha_val = XeCryptHmacSha(test_data[:0x10], test_data[0x10:])
+	sha_val = XeCryptHmacSha(TEST_DATA[:0x10], TEST_DATA[0x10:])
 	print("    SHA third round (HMAC) - ")
 	if sha_val == hmac_1_digest:
 		print("OK")
@@ -273,7 +276,7 @@ def do_sha_test() -> bool:
 		print("FAILED")
 		sha_pass = False
 
-	sha_val = XeCryptHmacSha(test_data[:0x40], *unpack_from(f"<{0x20000}s {0x20000}s {6}s", test_data, 0))
+	sha_val = XeCryptHmacSha(TEST_DATA[:0x40], *unpack_from(f"<{0x20000}s {0x20000}s {6}s", TEST_DATA, 0))
 	print("    SHA fourth round (HMAC) - ")
 	if sha_val == hmac_2_digest:
 		print("OK")
@@ -292,7 +295,7 @@ def do_misc_test() -> bool:
 
 	print("    testing RotSum")
 
-	if XeCryptRotSum(test_data[:0x20]) == rotsum_digest:
+	if XeCryptRotSum(TEST_DATA[:0x20]) == rotsum_digest:
 		print("OK")
 	else:
 		print("FAILED")
@@ -323,11 +326,13 @@ def do_misc_test() -> bool:
 
 	return misc_pass
 
-if __name__ == "__main__":
+def main() -> None:
+	global TEST_DATA
+
 	test_pass = True
 
 	# test data
-	test_data = read_file("Data/test_data.bin")
+	TEST_DATA = read_file("Data/test_data.bin")
 
 	# RSA tests
 	if not do_rsa_test():
@@ -369,3 +374,6 @@ if __name__ == "__main__":
 		print("SUCCESS! All tests passed!")
 	else:
 		print("ERROR! One or more tests failed!")
+
+if __name__ == "__main__":
+	main()
