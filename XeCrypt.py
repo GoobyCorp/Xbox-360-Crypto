@@ -624,6 +624,12 @@ def XeCryptMulHdu(val1: int, val2: int) -> Tuple[int, int]:
 	lo_val = a & UINT64_MASK
 	return (hi_val, lo_val)
 
+def int128_to_two_int64(v: int) -> Tuple[int, int]:
+	v &= UINT128_MASK
+	c = (v >> 64) & UINT64_MASK
+	s = v & UINT64_MASK
+	return (c, s)
+
 def XeCryptBnQwNeModMul(qw_a: Union[bytes, bytearray], qw_b: Union[bytes, bytearray], qw_mi: int, qw_m: Union[bytes, bytearray], cqw: int) -> bytes:
 	a_arr = array("Q", unpack(f">{cqw}Q", qw_a))
 	b_arr = array("Q", unpack(f">{cqw}Q", qw_b))
@@ -636,32 +642,35 @@ def XeCryptBnQwNeModMul(qw_a: Union[bytes, bytearray], qw_b: Union[bytes, bytear
 	mmi_stat &= UINT64_MASK
 	for i in range(cqw):
 		mmi = (mmi_stat * b_arr[i]) + (qw_mi * (acc_arr_1[1] - acc_arr_2[1]))
-		acc_1 = 0
-		acc_2 = 0
+		mmi &= UINT64_MASK
+
+		acc1 = 0
 		for j in range(cqw):
 			(hi_val, lo_val) = XeCryptMulHdu(b_arr[i], a_arr[j])
 			lo_val += acc_arr_1[j + 1]
 			lo_val &= UINT64_MASK
 			hi_val += (lo_val < acc_arr_1[j + 1])
-			lo_val += acc_1
+			lo_val += acc1
 			lo_val &= UINT64_MASK
-			hi_val += (lo_val < acc_1)
-			acc_1 = hi_val
+			hi_val += (lo_val < acc1)
+			acc1 = hi_val
 			lo_val &= UINT64_MASK
 			acc_arr_1[j] = lo_val
+		acc_arr_1[cqw] = acc1
 
+		acc2 = 0
+		for j in range(cqw):
 			(hi_val, lo_val) = XeCryptMulHdu(mmi, m_arr[j])
 			lo_val += acc_arr_2[j + 1]
 			lo_val &= UINT64_MASK
 			hi_val += (lo_val < acc_arr_2[j + 1])
-			lo_val += acc_2
+			lo_val += acc2
 			lo_val &= UINT64_MASK
-			hi_val += (lo_val < acc_2)
-			acc_2 = hi_val
+			hi_val += (lo_val < acc2)
+			acc2 = hi_val
 			lo_val &= UINT64_MASK
 			acc_arr_2[j] = lo_val
-		acc_arr_1[cqw] = acc_1
-		acc_arr_2[cqw] = acc_2
+		acc_arr_2[cqw] = acc2
 	for i in range(cqw):
 		if acc_arr_1[cqw - i] > acc_arr_2[cqw - i]:
 			car = 0
@@ -734,9 +743,9 @@ def XeCryptBnQwNeRsaKeyToRsaProv(rsa_key: Union[bytes, bytearray]) -> RSA:
 		param_size = mod_size // 2
 		(cqw, dwPubExp, qwReserved, aqwM, aqwP, aqwQ, aqwDP, aqwDQ, aqwCR) = unpack(f">2IQ {mod_size}s {param_size}s {param_size}s {param_size}s {param_size}s {param_size}s", rsa_key)
 
-		n = int.from_bytes(bswap64(aqwM), "little")
-		p = int.from_bytes(bswap64(aqwP), "little")
-		q = int.from_bytes(bswap64(aqwQ), "little")
+		n = int.from_bytes(bswap64(aqwM), "little", signed=False)
+		p = int.from_bytes(bswap64(aqwP), "little", signed=False)
+		q = int.from_bytes(bswap64(aqwQ), "little", signed=False)
 		d = rsa_calc_d(dwPubExp, p, q)
 
 		return RSA.construct((n, dwPubExp, d, p, q))
@@ -744,7 +753,7 @@ def XeCryptBnQwNeRsaKeyToRsaProv(rsa_key: Union[bytes, bytearray]) -> RSA:
 		mod_size = cqw * 8
 		(cqw, dwPubExp, qwReserved, aqwM) = unpack(f">2IQ {mod_size}s", rsa_key)
 
-		aqwM = int.from_bytes(bswap64(aqwM), "little")
+		aqwM = int.from_bytes(bswap64(aqwM), "little", signed=False)
 
 		return RSA.construct((aqwM, dwPubExp))
 
@@ -1122,6 +1131,114 @@ def check_page_ecc(data: Union[bytes, bytearray], spare: Union[bytes, bytearray]
 		return True
 	return False
 
+# managed public key "interfaces"
+class PY_XECRYPT_RSAPUB:
+	key_bytes = None
+	key_struct = None
+
+	def __init__(self, data: Union[bytes, bytearray] = None):
+		self.reset()
+		self.key_bytes = data
+
+	def reset(self) -> None:
+		self.key_bytes = None
+		self.key_struct = None
+
+	def __bytes__(self) -> bytes:
+		return self.key_bytes
+
+	def c_struct(self):
+		return self.key_struct
+
+	@property
+	def cqw(self) -> int:
+		return self.key_struct.rsa.cqw
+
+	@property
+	def n(self) -> int:
+		return int.from_bytes(bswap64(bytes(self.key_struct.n)), "little", signed=False)
+
+	@property
+	def e(self) -> int:
+		return self.key_struct.rsa.e
+
+	def sig_verify(self, sig: Union[bytes, bytearray], hash: Union[bytes, bytearray], salt: Union[bytes, bytearray]) -> bool:
+		return XeCryptBnQwBeSigVerify(sig, hash, salt, self.key_bytes[:(self.cqw * 8) + 0x10])
+
+	def pkcs1_sig_verify(self, sig: Union[bytes, bytearray], hash: Union[bytes, bytearray]) -> bool:
+		return XeKeysPkcs1Verify(sig, hash, self.key_bytes[:(self.cqw * 8) + 0x10])
+
+# managed private key "interfaces"
+class PY_XECRYPT_RSAPRV(PY_XECRYPT_RSAPUB):
+	@property
+	def d(self) -> int:
+		return rsa_calc_d(self.e, self.p, self.q)
+
+	@property
+	def p(self) -> int:
+		return int.from_bytes(bswap64(bytes(self.key_struct.p)), "little", signed=False)
+
+	@property
+	def q(self) -> int:
+		return int.from_bytes(bswap64(bytes(self.key_struct.q)), "little", signed=False)
+
+	@property
+	def dp(self) -> int:
+		return int.from_bytes(bswap64(bytes(self.key_struct.dp)), "little", signed=False)
+
+	@property
+	def dq(self) -> int:
+		return int.from_bytes(bswap64(bytes(self.key_struct.dq)), "little", signed=False)
+
+	@property
+	def u(self) -> int:
+		return int.from_bytes(bswap64(bytes(self.key_struct.cr)), "little", signed=False)
+
+	def sig_create(self, hash: Union[bytes, bytearray], salt: Union[bytes, bytearray]) -> bytes:
+		sig = XeCryptBnQwBeSigCreate(hash, salt, self.key_bytes)
+		return XeCryptBnQwNeRsaPrvCrypt(sig, self.key_bytes)
+
+	def pkcs1_sig_create(self, hash: Union[bytes, bytearray]) -> bytes:
+		return XeKeysPkcs1Create(hash, self.key_bytes)
+
+# managed public key classes
+class PY_XECRYPT_RSAPUB_1024(PY_XECRYPT_RSAPUB):
+	def __init__(self, data: Union[bytes, bytearray] = None):
+		assert len(data) == XECRYPT_RSAPUB_1024_SIZE
+		super(PY_XECRYPT_RSAPUB_1024, self).__init__(data)
+		self.key_struct = XECRYPT_RSAPUB_1024.from_buffer_copy(data)
+
+class PY_XECRYPT_RSAPUB_1536(PY_XECRYPT_RSAPUB):
+	def __init__(self, data: Union[bytes, bytearray] = None):
+		assert len(data) == XECRYPT_RSAPUB_1536_SIZE
+		super(PY_XECRYPT_RSAPUB_1536, self).__init__(data)
+		self.key_struct = XECRYPT_RSAPUB_1536.from_buffer_copy(data)
+
+class PY_XECRYPT_RSAPUB_2048(PY_XECRYPT_RSAPUB):
+	def __init__(self, data: Union[bytes, bytearray] = None):
+		assert len(data) == XECRYPT_RSAPUB_2048_SIZE
+		super(PY_XECRYPT_RSAPUB_2048, self).__init__(data)
+		self.key_struct = XECRYPT_RSAPUB_2048.from_buffer_copy(data)
+
+# managed private key classes
+class PY_XECRYPT_RSAPRV_1024(PY_XECRYPT_RSAPRV):
+	def __init__(self, data: Union[bytes, bytearray] = None):
+		assert len(data) == XECRYPT_RSAPRV_1024_SIZE
+		super(PY_XECRYPT_RSAPRV_1024, self).__init__(data)
+		self.key_struct = XECRYPT_RSAPRV_1024.from_buffer_copy(data)
+
+class PY_XECRYPT_RSAPRV_1536(PY_XECRYPT_RSAPRV):
+	def __init__(self, data: Union[bytes, bytearray] = None):
+		assert len(data) == XECRYPT_RSAPRV_1536_SIZE
+		super(PY_XECRYPT_RSAPRV_1536, self).__init__(data)
+		self.key_struct = XECRYPT_RSAPRV_1536.from_buffer_copy(data)
+
+class PY_XECRYPT_RSAPRV_2048(PY_XECRYPT_RSAPRV):
+	def __init__(self, data: Union[bytes, bytearray] = None):
+		assert len(data) == XECRYPT_RSAPRV_2048_SIZE
+		super(PY_XECRYPT_RSAPRV_2048, self).__init__(data)
+		self.key_struct = XECRYPT_RSAPRV_2048.from_buffer_copy(data)
+
 __all__ = [
 	# constants
 	"XECRYPT_1BL_KEY",
@@ -1163,12 +1280,21 @@ __all__ = [
 	"XECRYPT_RSAPUB_1024",
 	"XECRYPT_RSAPUB_1536",
 	"XECRYPT_RSAPUB_2048",
-	"XECRYPT_RSAPUB_4096",
+	# "XECRYPT_RSAPUB_4096",
 	"XECRYPT_RSAPRV_1024",
 	"XECRYPT_RSAPRV_1536",
 	"XECRYPT_RSAPRV_2048",
-	"XECRYPT_RSAPRV_4096",
+	# "XECRYPT_RSAPRV_4096",
 	"XECRYPT_SIG",
+
+	# managed public key classes
+	"PY_XECRYPT_RSAPUB_1024",
+	"PY_XECRYPT_RSAPUB_1536",
+	"PY_XECRYPT_RSAPUB_2048",
+	# managed private key classes
+	"PY_XECRYPT_RSAPRV_1024",
+	"PY_XECRYPT_RSAPRV_1536",
+	"PY_XECRYPT_RSAPRV_2048",
 
 	# enums
 	"BLMagic",

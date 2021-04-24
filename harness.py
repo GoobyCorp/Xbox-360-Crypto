@@ -51,12 +51,13 @@ rotsum_digest = bytes.fromhex("0000000000000001F83FB03F944C2298FFFFFFFFFFFFFFFEB
 valid_cpu_key = bytes.fromhex("0F17D09D89EA12B1716E5D134F8266FF")
 invalid_cpu_key = bytes.fromhex("12345678901234567890123456789010")
 
-def sig_create_verify_test(prv_key: (bytes, bytearray)) -> bool:
-	sig = XeCryptBnQwBeSigCreate(rsa_test_hash, rsa_test_salt, prv_key)
+def sig_create_verify_test(prv_key: PY_XECRYPT_RSAPRV_2048) -> bool:
+	# key = PY_XECRYPT_RSAPRV_2048(prv_key)
+
+	sig = prv_key.sig_create(rsa_test_hash, rsa_test_salt)
 	print("        RSA signature created OK")
-	sig = XeCryptBnQwNeRsaPrvCrypt(sig, prv_key)
 	print("        RSA signature encrypted OK")
-	if XeCryptBnQwBeSigVerify(sig, rsa_test_hash, rsa_test_salt, prv_key[:XECRYPT_RSAPUB_2048_SIZE]):
+	if prv_key.sig_verify(sig, rsa_test_hash, rsa_test_salt):
 		print("        RSA signature verified OK")
 		return True
 	else:
@@ -65,11 +66,11 @@ def sig_create_verify_test(prv_key: (bytes, bytearray)) -> bool:
 
 def do_rsa_test() -> bool:
 	rsa_pass = True
-	rsa_test_key = read_file("Data/rsa_test_key.bin")
+	prv_key = PY_XECRYPT_RSAPRV_2048(read_file("Data/rsa_test_key.bin"))
 
 	print("starting RSA tests...")
 	print("    testing RSA signature creation and verification with static key....")
-	if sig_create_verify_test(rsa_test_key):
+	if sig_create_verify_test(prv_key):
 		print("    RSA test OK")
 	else:
 		print("    RSA test FAILED")
@@ -77,9 +78,9 @@ def do_rsa_test() -> bool:
 
 	print("    testing PKCS1 signature creation and verification with static key....")
 
-	sig_buf = XeKeysPkcs1Create(rsa_test_hash, rsa_test_key)
+	sig = prv_key.pkcs1_sig_create(rsa_test_hash)
 	print("        PKCS1 signature created OK")
-	if XeKeysPkcs1Verify(sig_buf, rsa_test_hash, rsa_test_key[:XECRYPT_RSAPUB_2048_SIZE]):
+	if prv_key.pkcs1_sig_verify(sig, rsa_test_hash):
 		print("        PKCS1 signature verified OK")
 	else:
 		print("        PKCS1 signature verify FAILED")
