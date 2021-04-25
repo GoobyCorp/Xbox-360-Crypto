@@ -1147,6 +1147,9 @@ class PY_XECRYPT_RSAPUB:
 	def __bytes__(self) -> bytes:
 		return self.key_bytes
 
+	def to_bytes(self) -> bytes:
+		return self.key_bytes
+
 	def c_struct(self):
 		return self.key_struct
 
