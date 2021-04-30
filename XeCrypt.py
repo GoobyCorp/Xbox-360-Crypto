@@ -8,7 +8,7 @@ __author__ = "Visual Studio"
 __maintainer__ = "Visual Studio"
 __credits__ = ["Visual Studio", "cOz", "TEIR1plus2", "ED9"]
 __version__ = "1.0.0.0"
-__license__ = "GPL"
+__license__ = "BSD"
 __status__ = "Development"
 
 from math import gcd
