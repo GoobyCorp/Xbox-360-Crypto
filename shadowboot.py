@@ -238,6 +238,8 @@ class ShadowbootImage:
 
 			img.parse_metadata()
 
+			img.parse_patches()
+
 			if checks:
 				if not img.check_signature_sb_2bl():
 					raise Exception("Invalid SB signature")
@@ -418,21 +420,20 @@ class ShadowbootImage:
 		end_loc = self.sd_data.find(bl_end) + len(bl_end)
 		if end_loc == -1 or end_loc == len(self.sd_data):  # no patches
 			return
-		sio = StreamIO(self.sd_data, Endian.BIG)
-		sio.seek(end_loc)  # not static by any means
-		patch_loader = sio.read_ubytes(0x40)  # the loader code for patches
-		self.patches.append({"offset": end_loc, "size_bytes": len(patch_loader), "patch_loader": patch_loader})
-		while True:
-			offset = sio.tell()
-			address = sio.read_uint32()
-			if address == 0xFFFFFFFF:  # end of patches
-				break
-			size_int32 = sio.read_uint32()
-			size_bytes = size_int32 * 4
-			patch_code = sio.read_ubytes(size_bytes)
-			whole_patch = pack(">2I", address, size_int32) + patch_code
-			self.patches.append({"offset": offset, "address": address, "size_int32": size_int32, "size_bytes": (size_bytes * 4), "patch_code": patch_code, "whole_patch": whole_patch})
-		sio.close()
+		with StreamIO(self.sd_data, Endian.BIG) as sio:
+			sio.seek(end_loc)  # not static by any means
+			patch_loader = sio.read_ubytes(0x40)  # the loader code for patches
+			self.patches.append({"offset": end_loc, "size_bytes": len(patch_loader), "patch_loader": patch_loader})
+			while True:
+				offset = sio.tell()
+				address = sio.read_uint32()
+				if address == 0xFFFFFFFF:  # end of patches
+					break
+				size_int32 = sio.read_uint32()
+				size_bytes = size_int32 * 4
+				patch_code = sio.read_ubytes(size_bytes)
+				whole_patch = pack(">2I", address, size_int32) + patch_code
+				self.patches.append({"offset": offset, "address": address, "size_int32": size_int32, "size_bytes": (size_bytes * 4), "patch_code": patch_code, "whole_patch": whole_patch})
 
 	def parse_metadata(self) -> None:
 		# SB

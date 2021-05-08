@@ -51,7 +51,7 @@ rotsum_digest = bytes.fromhex("0000000000000001F83FB03F944C2298FFFFFFFFFFFFFFFEB
 valid_cpu_key = bytes.fromhex("0F17D09D89EA12B1716E5D134F8266FF")
 invalid_cpu_key = bytes.fromhex("12345678901234567890123456789010")
 
-def sig_create_verify_test(prv_key: PY_XECRYPT_RSAPRV_2048) -> bool:
+def sig_create_verify_test(prv_key: PY_XECRYPT_RSA_KEY) -> bool:
 	# key = PY_XECRYPT_RSAPRV_2048(prv_key)
 
 	sig = prv_key.sig_create(rsa_test_hash, rsa_test_salt)
@@ -66,7 +66,7 @@ def sig_create_verify_test(prv_key: PY_XECRYPT_RSAPRV_2048) -> bool:
 
 def do_rsa_test() -> bool:
 	rsa_pass = True
-	prv_key = PY_XECRYPT_RSAPRV_2048(read_file("Data/rsa_test_key.bin"))
+	prv_key = PY_XECRYPT_RSA_KEY(read_file("Data/rsa_test_key.bin"))
 
 	print("starting RSA tests...")
 	print("    testing RSA signature creation and verification with static key....")

@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Union, Tuple
 from io import BytesIO, StringIO
 from struct import pack, unpack, pack_into, unpack_from, calcsize
-from ctypes import BigEndianStructure, c_ubyte, c_uint16, c_uint32, c_uint64
+from ctypes import BigEndianStructure, sizeof, c_ubyte, c_uint16, c_uint32, c_uint64
 
 # pip install pycryptodome
 from Crypto.PublicKey import RSA
@@ -736,26 +736,11 @@ def BnQwBeBufSwap(data: Union[bytes, bytearray], cqw: int) -> bytes:
 	return data
 
 def XeCryptBnQwNeRsaKeyToRsaProv(rsa_key: Union[bytes, bytearray]) -> RSA:
-	(cqw,) = unpack(">I", rsa_key[:calcsize("I")])
-	assert cqw in [0x10, 0x18, 0x20, 0x40], "Unsupported key size"
-	try:
-		mod_size = cqw * 8
-		param_size = mod_size // 2
-		(cqw, dwPubExp, qwReserved, aqwM, aqwP, aqwQ, aqwDP, aqwDQ, aqwCR) = unpack(f">2IQ {mod_size}s {param_size}s {param_size}s {param_size}s {param_size}s {param_size}s", rsa_key)
-
-		n = int.from_bytes(bswap64(aqwM), "little", signed=False)
-		p = int.from_bytes(bswap64(aqwP), "little", signed=False)
-		q = int.from_bytes(bswap64(aqwQ), "little", signed=False)
-		d = rsa_calc_d(dwPubExp, p, q)
-
-		return RSA.construct((n, dwPubExp, d, p, q))
-	except:
-		mod_size = cqw * 8
-		(cqw, dwPubExp, qwReserved, aqwM) = unpack(f">2IQ {mod_size}s", rsa_key)
-
-		aqwM = int.from_bytes(bswap64(aqwM), "little", signed=False)
-
-		return RSA.construct((aqwM, dwPubExp))
+	key = PY_XECRYPT_RSA_KEY(rsa_key)
+	if key.is_private_key:
+		return RSA.construct((key.n, key.e, key.d, key.p, key.q))
+	else:
+		return RSA.construct((key.n, key.e))
 
 def XeCryptBnQwNeRsaKeyGen(cbits: int = 2048, dwPubExp: int = 0x10001) -> Tuple[bytes, bytes]:
 	prv_key = RSA.generate(cbits, e=dwPubExp)
@@ -803,45 +788,30 @@ def XeCryptBnQwBeSigCreate(b_hash: Union[bytes, bytearray], salt: Union[bytes, b
 	(cqw,) = unpack(">I", prv_key[:calcsize("I")])
 	assert cqw in [0x10, 0x18, 0x20, 0x40], "Unsupported key size"
 
-	mod_size = cqw * 8
-	param_size = mod_size // 2
-	(cqw, dwPubExp, qwReserved, aqwM, aqwP, aqwQ, aqwDP, aqwDQ, aqwCR) = unpack(f">2IQ {mod_size}s {param_size}s {param_size}s {param_size}s {param_size}s {param_size}s", prv_key)
-
+	key = PY_XECRYPT_RSA_KEY(prv_key)
 	if cqw == 0x20:  # PXECRYPT_RSAPRV_2048
-		if dwPubExp == 0x3 or dwPubExp == 0x10001:
+		if key.e == 0x3 or key.e == 0x10001:
 			sig = XeCryptBnQwBeSigFormat((b"\x00" * (cqw * 8)), b_hash, salt)
-			if sig != aqwM:
-				aqwM = int.from_bytes(bswap64(aqwM), "little", signed=False)
-
+			if sig != bytes(key.key_struct.n):
 				x = int.from_bytes(bswap64(sig), "little", signed=False)
-				r = pow(2, (((dwPubExp & 0xFFFFFFFF) - 1) << 11), aqwM)
-				sig = (x * r) % aqwM  # move to Montgomery domain
-
+				r = pow(2, (((key.e & 0xFFFFFFFF) - 1) << 11), key.n)
+				sig = (x * r) % key.n  # move to Montgomery domain
 				return bswap64(sig.to_bytes(cqw * 8, "little", signed=False))
 
 def XeCryptBnQwBeSigVerify(sig: Union[bytes, bytearray], b_hash: Union[bytes, bytearray], salt: Union[bytes, bytearray], pub_key: Union[bytes, bytearray]) -> bool:
-	(cqw,) = unpack(">I", pub_key[:calcsize("I")])
-	assert cqw in [0x10, 0x18, 0x20, 0x40], "Unsupported key size"
-
-	mod_size = cqw * 8
-	(cqw, dwPubExp, qwReserved, aqwM) = unpack(f">2IQ {mod_size}s", pub_key)
-
-	if qwReserved != 0:
-		mod_inv = qwReserved
-	else:
-		mod_inv = XeCryptBnQwNeModInv(int.from_bytes(aqwM[:8], "big"))
-		mod_inv &= UINT64_MASK
+	key = PY_XECRYPT_RSA_KEY(pub_key)
+	mod_inv = key.mod_inv
 
 	sig_dec = sig
 	sig_com = sig_dec
 
-	exp = dwPubExp >> 1
+	exp = key.e >> 1
 	while exp > 0:
-		sig_com = XeCryptBnQwNeModMul(sig_com, sig_com, mod_inv, aqwM, cqw)
+		sig_com = XeCryptBnQwNeModMul(sig_com, sig_com, mod_inv, bytes(key.key_struct.n), key.cqw)
 		exp >>= 1
-	sig_dec = XeCryptBnQwNeModMul(sig_com, sig_dec, mod_inv, aqwM, cqw)
+	sig_dec = XeCryptBnQwNeModMul(sig_com, sig_dec, mod_inv, bytes(key.key_struct.n), key.cqw)
 
-	sig_dec = BnQwBeBufSwap(sig_dec, cqw)
+	sig_dec = BnQwBeBufSwap(sig_dec, key.cqw)
 
 	if sig_dec[0xFF] != 0xBC:
 		return False
@@ -893,72 +863,41 @@ def XeCryptBnDwLePkcs1Verify(sig: Union[bytes, bytearray], b_hash: Union[bytes, 
 		return memcmp(buf, sig, cb_sig)
 
 def XeKeysPkcs1Create(b_hash: Union[bytes, bytearray], prv_key: Union[bytes, bytearray]) -> Union[bytes, None]:
-	(cqw,) = unpack(">I", prv_key[:calcsize("I")])
-	assert cqw in [0x10, 0x18, 0x20, 0x40], "Unsupported key size"
-
-	mod_size = cqw * 8
-	param_size = mod_size // 2
-	(cqw, dwPubExp, qwReserved, aqwM, aqwP, aqwQ, aqwDP, aqwDQ, aqwCR) = unpack(f">2IQ {mod_size}s {param_size}s {param_size}s {param_size}s {param_size}s {param_size}s", prv_key)
-
-	sig = bytearray(mod_size)
-	if cqw != 0 and cqw <= 0x40:
+	key = PY_XECRYPT_RSA_KEY(prv_key)
+	sig = bytearray(key.size_in_bytes)
+	if key.cqw != 0 and key.cqw <= 0x40:
 		buf = bytearray(0x200)
 		typ = 2
 		if sig[0x16] == 0:
 			typ = 0
 		elif sig[0x16] == 0x1A:
 			typ = 1
-		buf = XeCryptBnDwLePkcs1Format(b_hash, typ, buf, cqw << 3)
+		buf = XeCryptBnDwLePkcs1Format(b_hash, typ, buf, key.cqw << 3)
 		buf = XeCryptBnQw_SwapDwQwLeBe(buf)
 		buf = XeCryptBnQwNeRsaPrvCrypt(buf, prv_key)
 		return XeCryptBnQw_SwapDwQwLeBe(buf)
 
 def XeKeysPkcs1Verify(sig: Union[bytes, bytearray], b_hash: Union[bytes, bytearray], pub_key: Union[bytes, bytearray]) -> bool:
-	(cqw,) = unpack_from(">I", pub_key, 0)
-	assert cqw in [0x10, 0x18, 0x20, 0x40], "Unsupported key size"
-
-	mod_size = cqw * 8
-	(cqw, dwPubExp, qwReserved, aqwM) = unpack_from(f">2IQ {mod_size}s", pub_key, 0)
-
-	if cqw != 0 and cqw <= 0x40:
+	key = PY_XECRYPT_RSA_KEY(pub_key)
+	if key.cqw != 0 and key.cqw <= 0x40:
 		buf = bytearray(0x200)
 		pack_into(f"<{len(sig)}s", buf, 0, XeCryptBnQw_SwapDwQwLeBe(sig))
 		buf = XeCryptBnQwNeRsaPubCrypt(buf, pub_key)
 		buf = XeCryptBnQw_SwapDwQwLeBe(buf)
-		return XeCryptBnDwLePkcs1Verify(buf, b_hash, cqw << 3)
+		return XeCryptBnDwLePkcs1Verify(buf, b_hash, key.cqw << 3)
 
 	return False
 
 def XeCryptBnQwNeRsaPrvCrypt(data: Union[bytes, bytearray], prv_key: Union[bytes, bytearray]) -> Union[bytes, bool]:
-	(cqw,) = unpack(">I", prv_key[:calcsize("I")])
-	assert cqw in [0x10, 0x18, 0x20, 0x40], "Unsupported key size"
-
-	mod_size = cqw * 8
-	param_size = mod_size // 2
-	(cqw, dwPubExp, qwReserved, aqwM, aqwP, aqwQ, aqwDP, aqwDQ, aqwCR) = unpack(f">2IQ {mod_size}s {param_size}s {param_size}s {param_size}s {param_size}s {param_size}s", prv_key)
-
-	aqwP = int.from_bytes(bswap64(aqwP), "little")
-	aqwQ = int.from_bytes(bswap64(aqwQ), "little")
-	aqwDP = int.from_bytes(bswap64(aqwDP), "little")
-	aqwDQ = int.from_bytes(bswap64(aqwDQ), "little")
-	aqwCR = int.from_bytes(bswap64(aqwCR), "little")
-
+	key = PY_XECRYPT_RSA_KEY(prv_key)
 	data = int.from_bytes(bswap64(data), "little")
-
-	return bswap64(XeCryptBnQwNeModExpRoot(data, aqwP, aqwQ, aqwDP, aqwDQ, aqwCR).to_bytes(cqw * 8, "little", signed=False))
+	return bswap64(XeCryptBnQwNeModExpRoot(data, key.p, key.q, key.dp, key.dq, key.u).to_bytes(key.cqw * 8, "little", signed=False))
 
 def XeCryptBnQwNeRsaPubCrypt(data: Union[bytes, bytearray], pub_key: Union[bytes, bytearray]) -> Union[bytes, bool]:
-	(cqw,) = unpack(">I", pub_key[:calcsize("I")])
-	assert cqw in [0x10, 0x18, 0x20, 0x40], "Unsupported key size"
-
-	mod_size = cqw * 8
-	(cqw, dwPubExp, qwReserved, aqwM) = unpack(f">2IQ {mod_size}s", pub_key)
-
-	aqwM = int.from_bytes(bswap64(aqwM), "little")
+	key = PY_XECRYPT_RSA_KEY(pub_key)
 	data = int.from_bytes(bswap64(data), "little")
-	data = pow(data, dwPubExp & 0xFFFFFFFF, aqwM)
-
-	return bswap64(data.to_bytes(cqw * 8, "little", signed=False))
+	data = pow(data, key.e & 0xFFFFFFFF, key.n)
+	return bswap64(data.to_bytes(key.cqw * 8, "little", signed=False))
 
 # Utility
 def XeCryptSmcDecrypt(data: Union[bytes, bytearray]) -> Union[bytes, bytearray]:
@@ -1132,17 +1071,44 @@ def check_page_ecc(data: Union[bytes, bytearray], spare: Union[bytes, bytearray]
 	return False
 
 # managed public key "interfaces"
-class PY_XECRYPT_RSAPUB:
+class PY_XECRYPT_RSA_KEY:
 	key_bytes = None
+	rsa_struct = None
 	key_struct = None
+	is_private_key: bool = False
 
 	def __init__(self, data: Union[bytes, bytearray] = None):
 		self.reset()
+
 		self.key_bytes = data
+		self.rsa_struct = XECRYPT_RSA.from_buffer_copy(data[:sizeof(XECRYPT_RSA)])
+
+		if self.rsa_struct.cqw == 0x10 and len(self.key_bytes) == XECRYPT_RSAPUB_1024_SIZE:
+			self.key_struct = XECRYPT_RSAPUB_1024.from_buffer_copy(data)
+		elif self.rsa_struct.cqw == 0x10 and len(self.key_bytes) == XECRYPT_RSAPRV_1024_SIZE:
+			self.is_private_key = True
+			self.key_struct = XECRYPT_RSAPRV_1024.from_buffer_copy(data)
+		elif self.rsa_struct.cqw == 0x18 and len(self.key_bytes) == XECRYPT_RSAPUB_1536_SIZE:
+			self.key_struct = XECRYPT_RSAPUB_1536.from_buffer_copy(data)
+		elif self.rsa_struct.cqw == 0x18 and len(self.key_bytes) == XECRYPT_RSAPRV_1536_SIZE:
+			self.is_private_key = True
+			self.key_struct = XECRYPT_RSAPRV_1536.from_buffer_copy(data)
+		elif self.rsa_struct.cqw == 0x20 and len(self.key_bytes) == XECRYPT_RSAPUB_2048_SIZE:
+			self.key_struct = XECRYPT_RSAPUB_2048.from_buffer_copy(data)
+		elif self.rsa_struct.cqw == 0x20 and len(self.key_bytes) == XECRYPT_RSAPRV_2048_SIZE:
+			self.is_private_key = True
+			self.key_struct = XECRYPT_RSAPRV_2048.from_buffer_copy(data)
+		elif self.rsa_struct.cqw == 0x40 and len(self.key_bytes) == XECRYPT_RSAPUB_4096_SIZE:
+			self.key_struct = XECRYPT_RSAPUB_4096.from_buffer_copy(data)
+		elif self.rsa_struct.cqw == 0x40 and len(self.key_bytes) == XECRYPT_RSAPRV_4096_SIZE:
+			self.is_private_key = True
+			self.key_struct = XECRYPT_RSAPRV_4096.from_buffer_copy(data)
 
 	def reset(self) -> None:
 		self.key_bytes = None
+		self.rsa_struct = None
 		self.key_struct = None
+		self.is_private_key = False
 
 	def __bytes__(self) -> bytes:
 		return self.key_bytes
@@ -1154,8 +1120,24 @@ class PY_XECRYPT_RSAPUB:
 		return self.key_struct
 
 	@property
+	def size_in_bytes(self) -> int:
+		return self.cqw * 8
+
+	@property
+	def size_in_bits(self) -> int:
+		return self.size_in_bytes * 8
+
+	@property
 	def cqw(self) -> int:
 		return self.key_struct.rsa.cqw
+
+	@property
+	def mod_inv(self) -> int:
+		v = self.key_struct.rsa.qwReserved
+		if v == 0:
+			v = XeCryptBnQwNeModInv(int.from_bytes(bytes(self.key_struct.n)[:8], "big"))
+		v &= UINT64_MASK
+		return v
 
 	@property
 	def n(self) -> int:
@@ -1165,14 +1147,6 @@ class PY_XECRYPT_RSAPUB:
 	def e(self) -> int:
 		return self.key_struct.rsa.e
 
-	def sig_verify(self, sig: Union[bytes, bytearray], hash: Union[bytes, bytearray], salt: Union[bytes, bytearray]) -> bool:
-		return XeCryptBnQwBeSigVerify(sig, hash, salt, self.key_bytes[:(self.cqw * 8) + 0x10])
-
-	def pkcs1_sig_verify(self, sig: Union[bytes, bytearray], hash: Union[bytes, bytearray]) -> bool:
-		return XeKeysPkcs1Verify(sig, hash, self.key_bytes[:(self.cqw * 8) + 0x10])
-
-# managed private key "interfaces"
-class PY_XECRYPT_RSAPRV(PY_XECRYPT_RSAPUB):
 	@property
 	def d(self) -> int:
 		return rsa_calc_d(self.e, self.p, self.q)
@@ -1197,50 +1171,22 @@ class PY_XECRYPT_RSAPRV(PY_XECRYPT_RSAPUB):
 	def u(self) -> int:
 		return int.from_bytes(bswap64(bytes(self.key_struct.cr)), "little", signed=False)
 
+	def sig_verify(self, sig: Union[bytes, bytearray], hash: Union[bytes, bytearray], salt: Union[bytes, bytearray]) -> bool:
+		pub_key = self.key_bytes[:(self.cqw * 8) + 0x10]
+		return XeCryptBnQwBeSigVerify(sig, hash, salt, pub_key)
+
+	def pkcs1_sig_verify(self, sig: Union[bytes, bytearray], hash: Union[bytes, bytearray]) -> bool:
+		pub_key = self.key_bytes[:(self.cqw * 8) + 0x10]
+		return XeKeysPkcs1Verify(sig, hash, pub_key)
+
 	def sig_create(self, hash: Union[bytes, bytearray], salt: Union[bytes, bytearray]) -> bytes:
+		assert self.is_private_key, "Key isn't a private key!"
 		sig = XeCryptBnQwBeSigCreate(hash, salt, self.key_bytes)
 		return XeCryptBnQwNeRsaPrvCrypt(sig, self.key_bytes)
 
 	def pkcs1_sig_create(self, hash: Union[bytes, bytearray]) -> bytes:
+		assert self.is_private_key, "Key isn't a private key!"
 		return XeKeysPkcs1Create(hash, self.key_bytes)
-
-# managed public key classes
-class PY_XECRYPT_RSAPUB_1024(PY_XECRYPT_RSAPUB):
-	def __init__(self, data: Union[bytes, bytearray] = None):
-		assert len(data) == XECRYPT_RSAPUB_1024_SIZE
-		super(PY_XECRYPT_RSAPUB_1024, self).__init__(data)
-		self.key_struct = XECRYPT_RSAPUB_1024.from_buffer_copy(data)
-
-class PY_XECRYPT_RSAPUB_1536(PY_XECRYPT_RSAPUB):
-	def __init__(self, data: Union[bytes, bytearray] = None):
-		assert len(data) == XECRYPT_RSAPUB_1536_SIZE
-		super(PY_XECRYPT_RSAPUB_1536, self).__init__(data)
-		self.key_struct = XECRYPT_RSAPUB_1536.from_buffer_copy(data)
-
-class PY_XECRYPT_RSAPUB_2048(PY_XECRYPT_RSAPUB):
-	def __init__(self, data: Union[bytes, bytearray] = None):
-		assert len(data) == XECRYPT_RSAPUB_2048_SIZE
-		super(PY_XECRYPT_RSAPUB_2048, self).__init__(data)
-		self.key_struct = XECRYPT_RSAPUB_2048.from_buffer_copy(data)
-
-# managed private key classes
-class PY_XECRYPT_RSAPRV_1024(PY_XECRYPT_RSAPRV):
-	def __init__(self, data: Union[bytes, bytearray] = None):
-		assert len(data) == XECRYPT_RSAPRV_1024_SIZE
-		super(PY_XECRYPT_RSAPRV_1024, self).__init__(data)
-		self.key_struct = XECRYPT_RSAPRV_1024.from_buffer_copy(data)
-
-class PY_XECRYPT_RSAPRV_1536(PY_XECRYPT_RSAPRV):
-	def __init__(self, data: Union[bytes, bytearray] = None):
-		assert len(data) == XECRYPT_RSAPRV_1536_SIZE
-		super(PY_XECRYPT_RSAPRV_1536, self).__init__(data)
-		self.key_struct = XECRYPT_RSAPRV_1536.from_buffer_copy(data)
-
-class PY_XECRYPT_RSAPRV_2048(PY_XECRYPT_RSAPRV):
-	def __init__(self, data: Union[bytes, bytearray] = None):
-		assert len(data) == XECRYPT_RSAPRV_2048_SIZE
-		super(PY_XECRYPT_RSAPRV_2048, self).__init__(data)
-		self.key_struct = XECRYPT_RSAPRV_2048.from_buffer_copy(data)
 
 __all__ = [
 	# constants
@@ -1283,21 +1229,15 @@ __all__ = [
 	"XECRYPT_RSAPUB_1024",
 	"XECRYPT_RSAPUB_1536",
 	"XECRYPT_RSAPUB_2048",
-	# "XECRYPT_RSAPUB_4096",
+	"XECRYPT_RSAPUB_4096",
 	"XECRYPT_RSAPRV_1024",
 	"XECRYPT_RSAPRV_1536",
 	"XECRYPT_RSAPRV_2048",
-	# "XECRYPT_RSAPRV_4096",
+	"XECRYPT_RSAPRV_4096",
 	"XECRYPT_SIG",
 
-	# managed public key classes
-	"PY_XECRYPT_RSAPUB_1024",
-	"PY_XECRYPT_RSAPUB_1536",
-	"PY_XECRYPT_RSAPUB_2048",
-	# managed private key classes
-	"PY_XECRYPT_RSAPRV_1024",
-	"PY_XECRYPT_RSAPRV_1536",
-	"PY_XECRYPT_RSAPRV_2048",
+	# managed key class
+	"PY_XECRYPT_RSA_KEY",
 
 	# enums
 	"BLMagic",

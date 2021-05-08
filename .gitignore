@@ -1,4 +1,5 @@
 /*.bin
+/test.py
 
 /map.txt
 /bin/loaders/patch_loader.bin
