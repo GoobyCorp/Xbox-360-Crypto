@@ -5,18 +5,17 @@ __description__ = "A script to extract and build shadowboots"
 __platforms__ = ["Windows"]
 __thanks__ = ["tydye81", "c0z", "golden"]
 
-import subprocess
-from ctypes import *
-from os import remove
 from io import BytesIO
 from json import loads
 from binascii import crc32
+from ctypes import sizeof, c_ubyte
 from argparse import ArgumentParser
 from struct import pack, pack_into, unpack_from
-from os.path import abspath, dirname, isdir, isfile, join
+from os.path import abspath, isdir, isfile, join
 
 from XeCrypt import *
 from StreamIO import *
+from build_lib import *
 
 # constants
 BIN_DIR = "bin"
@@ -32,21 +31,6 @@ NOP = 0x60000000
 HYPERVISOR_SIZE = 0x40000
 SMC_CONFIG_SIZE = 280
 SHADOWBOOT_SIZE = 0xD4000
-
-# C defines
-BYTE = c_byte
-WORD = c_ushort
-DWORD = c_ulong
-QWORD = c_ulonglong
-CHAR = c_char
-WCHAR = c_wchar
-UINT = c_uint
-INT = c_int
-DOUBLE = c_double
-FLOAT = c_float
-BOOLEAN = BYTE
-BOOL = c_long
-NULL_PTR = POINTER(c_int32)()
 
 # keys
 ONE_BL_KEY = None
@@ -69,97 +53,6 @@ def pad_hex(i: int) -> str:
 	while len(h) < 8:
 		h = "0" + h
 	return h
-
-def sign_sd_4bl(key: (bytes, bytearray), salt: (bytes, bytearray), data: (bytes, bytearray)) -> bytearray:
-	if type(data) == bytes:
-		data = bytearray(data)
-
-	h = XeCryptRotSumSha(data[:0x10] + data[0x120:])
-	sig = XeCryptBnQwBeSigCreate(h, salt, key)
-	sig = XeCryptBnQwNeRsaPrvCrypt(sig, key)
-	pack_into("<256s", data, 0x20, sig)
-	return data
-
-def encrypt_bl(key: (bytes, bytearray), data: (bytes, bytearray)) -> bytearray:
-	with BytesIO(data) as bio:
-		bio.seek(0x20)  # skip header and nonce
-		bl_data_enc = XeCryptRc4Ecb(key, bio.read())  # read all of the remaining data and encrypt it
-		bio.seek(0x20)  # write the encrypted data back
-		bio.write(bl_data_enc)
-		data = bio.getvalue()
-	return bytearray(data)
-
-def apply_jump_sd_4bl(data: (bytes, bytearray), size: int) -> bytearray:
-	with StreamIO(data, Endian.BIG) as sio:
-		while True:
-			if sio.read_uint32() == 0x4C000024:
-				sio.offset -= 4
-				dist = (size & ~0x80000000) - (sio.offset & ~0x80000000)
-				ret = 0x48000000 | (dist & 0x3FFFFFC)
-				sio.write_uint32(ret)
-				break
-		data = sio.getvalue()
-	return bytearray(data)
-
-def assemble_patch(asm_filename: str, bin_filename: str, *includes) -> None:
-	args = [join(BIN_DIR, "xenon-as.exe"), "-be", "-many", "-mregnames", asm_filename, "-o", "temp.elf"]
-	args.extend(["-I", dirname(asm_filename)])
-	[args.extend(["-I", abspath(x)]) for x in includes]
-	result = subprocess.run(args, shell=True, stdout=subprocess.DEVNULL)
-	assert result.returncode == 0, "Patch assembly failed with error code %s" % (result.returncode)
-	args = [join(BIN_DIR, "xenon-objcopy.exe"), "temp.elf", "-O", "binary", bin_filename]
-	result = subprocess.run(args, shell=True, stdout=subprocess.DEVNULL)
-	assert result.returncode == 0, "ELF conversion failed with error code %s" % (result.returncode)
-	remove("temp.elf")
-
-def apply_patches_sd_4bl(sd_data: (bytes, bytearray), patch_data: (bytes, bytearray)) -> bytearray:
-	with StreamIO(sd_data, Endian.BIG) as sdsio:
-		with StreamIO(patch_data, Endian.BIG) as psio:
-			while True:
-				addr = psio.read_uint32()
-				if addr == 0xFFFFFFFF:
-					break
-				size = psio.read_uint32()
-				patch = psio.read_ubytes(size * 4)
-				sdsio.write_ubytes_at(addr, patch)
-		sd_data = sdsio.getvalue()
-	return bytearray(sd_data)
-
-def apply_patches_se_5bl(se_data: (bytes, bytearray), patch_data: (bytes, bytearray)) -> bytearray:
-	with StreamIO(se_data, Endian.BIG) as sesio:
-		with StreamIO(patch_data, Endian.BIG) as psio:
-			while True:
-				addr = psio.read_uint32()
-				if addr == 0xFFFFFFFF:
-					break
-				size = psio.read_uint32()
-				patch = psio.read_ubytes(size * 4)
-				sesio.write_ubytes_at(addr, patch)
-		se_data = sesio.getvalue()
-	return bytearray(se_data)
-
-# C DLL's
-libcedll = CDLL(abspath("lib/x64/libcedll.dll"))
-
-# C prototypes
-# decompression
-libcedll.ceDecompress.argtypes = [POINTER(c_ubyte), c_uint32]
-libcedll.ceDecompress.restype = c_uint32
-# compression
-libcedll.ceCompress.argtypes = [POINTER(c_ubyte), c_uint32]
-libcedll.ceCompress.restype = c_uint32
-
-# C functions
-def decompress_se(data: (bytes, bytearray)) -> bytearray:
-	(u_size,) = unpack_from(">I", data, 0x28)
-	c_buf = (c_ubyte * u_size)(*data)
-	assert libcedll.ceDecompress(c_buf, len(data)) == u_size, "SE decompression failed"
-	return bytearray(c_buf)
-
-def compress_se(data: (bytes, bytearray)) -> bytearray:
-	c_buf = (c_ubyte * len(data))(*data)
-	new_size = libcedll.ceCompress(c_buf, len(data))
-	return bytearray(c_buf)[:new_size]
 
 class ShadowbootImage:
 	# I/O stream
@@ -238,7 +131,7 @@ class ShadowbootImage:
 
 			img.parse_metadata()
 
-			img.parse_patches()
+			# img.parse_patches()
 
 			if checks:
 				if not img.check_signature_sb_2bl():
@@ -623,10 +516,10 @@ def main() -> None:
 		output_file = args.output
 
 		# compile patches
-		print("Compiling HV/kernel patches...")
-		assemble_patch(join(PATCH_DIR, "HVK", f"{BUILD_VER}-dev", "RGLoader-dev.S"), hvk_patches_file, PATCH_DIR)
-		print("Compiling XAM patches...")
-		assemble_patch(join(PATCH_DIR, "XAM", f"{BUILD_VER}-dev", "rglXam.S"), f"xam_{BUILD_VER}.rglp", PATCH_DIR)
+		# print("Compiling HV/kernel patches...")
+		# assemble_patch(join(PATCH_DIR, "HVK", f"{BUILD_VER}-dev", "RGLoader-dev.S"), hvk_patches_file, PATCH_DIR)
+		# print("Compiling XAM patches...")
+		# assemble_patch(join(PATCH_DIR, "XAM", f"{BUILD_VER}-dev", "rglXam.S"), f"xam_{BUILD_VER}.rglp", PATCH_DIR)
 
 		# assemble_patch(join(PATCH_DIR, "Test Kit", "patches.S"), "fakeanim.bin", PATCH_DIR)
 		# return
@@ -662,7 +555,7 @@ def main() -> None:
 		# cs = Cs(CS_ARCH_PPC, CS_MODE_64 + CS_MODE_BIG_ENDIAN)
 
 		print("Applying patches to HV and kernel...")
-		se_data = apply_patches_se_5bl(se_data, hvk_patches_file)
+		se_data = apply_patches(se_data, hvk_patches_file)
 
 		# if test_kit_compile:
 		# boot animation patch
@@ -806,7 +699,7 @@ def main() -> None:
 		# apply SD patches directly
 		if sd_patches_enabled and isfile(sd_patches_file):
 			print("Applying SD patches directly...")
-			sd_patched = apply_patches_sd_4bl(sd_patched, read_file(sd_patches_file))
+			sd_patched = apply_patches(sd_patched, read_file(sd_patches_file))
 		# apply padding
 		sd_patched += (b"\x00" * (((len(sd_patched) + 0xF) & ~0xF) - len(sd_patched)))
 		pack_into(">I", sd_patched, 0xC, len(sd_patched))  # set the new size
@@ -854,13 +747,13 @@ def main() -> None:
 		if args.all or args.keyvault:
 			write_file(join(args.output, "KV_dec.bin"), img.kv_data)
 		if args.all or args.sb:
-			write_file(join(args.output, "SB.bin"), img.sb_data)
+			write_file(join(args.output, f"sb_{img.sb_build}.bin"), img.sb_data)
 		if args.all or args.sc:
-			write_file(join(args.output, "SC.bin"), img.sc_data)
+			write_file(join(args.output, f"sc_{img.sc_build}.bin"), img.sc_data)
 		if args.all or args.sd:
-			write_file(join(args.output, "SD.bin"), img.sd_data)
+			write_file(join(args.output, f"sd_{img.sd_build}.bin"), img.sd_data)
 		if args.all or args.se:
-			write_file(join(args.output, "SE.bin"), img.se_data)
+			write_file(join(args.output, f"se_{img.se_build}.bin"), img.se_data)
 		if args.all or args.kernel:
 			write_file(join(args.output, "kernel.exe"), img.kernel_data)
 		if args.all or args.hypervisor:

@@ -15,6 +15,9 @@ _start:
 #       Optional patches
 # ============================================================================
 
+.print "  --- SYSTEM ROOT MAPPED TO HDD ---"
+.include "RGLoader-sysroot_hdd.S"
+
 .print "  --- KD retries patched to 1 ---"
 .include "RGLoader-kd_1retry.S"
 
@@ -494,7 +497,10 @@ _start:
 	li  %r3, 0
 	KMAKEBRANCH (ldBranchAddr+4)
 1:
-	.string "\\Device\\Flash\\RGLoader.xex\0"
+    # HDD
+    .string "\\Device\\Harddisk0\\Partition1\\RGLoader.xex\0"
+    # Flash
+    # .string "\\Device\\Flash\\RGLoader.xex\0"
 2:
 	.align 2
 9:

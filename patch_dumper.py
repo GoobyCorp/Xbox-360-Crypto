@@ -10,7 +10,7 @@ def main() -> None:
 	md = Cs(CS_ARCH_PPC, CS_MODE_32 + CS_MODE_BIG_ENDIAN)
 
 	with open("Output/decompiled_patches.asm", "w", newline="\n") as fw:
-		with open(r"Output/Test/1EA4.bin", "rb") as fr:
+		with open("C://Users/John/Desktop/patches.bin", "rb") as fr:
 			fr.seek(0, 2)
 			patch_size = fr.tell()
 			fr.seek(0)

@@ -1,5 +1,9 @@
-.globl _start
+.set nand_patch_offset, 0x00100000
+.set HvpGetFlashBaseAddress, 0x0000068C
+.set HvpFlashCopy, 0x00000484 # XeCryptCopyQwVec(void* dest, void* src, int iter)
+.set HvpMemCpy, 0x0000A4E0 #  memcpy(void *destination, const void *source, int len)
 
+    .globl _start
 _start:
 0:
 	mflr	r12
@@ -122,6 +126,10 @@ CheckFixAddr: # don't clobber r5 (source) or r6 (dest)
 	blr
 	
 no_hvfuse:
+    # get patch offset
+    bla		HvpGetFlashBaseAddress
+	oris	r4, r3, nand_patch_offset@h
+	ori		r4, r4, nand_patch_offset@l # source
 	# 0x8000020000020600 - 0x8000020000020A00 first half of cpu key mirrors
 	lis     r4, 0x8000
 	ori     r4, r4, 0x0200

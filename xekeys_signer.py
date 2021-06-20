@@ -13,7 +13,7 @@ PAYLOAD_SALT = b"XBOX_EX_01"
 def main() -> None:
 	global PAYLOAD_MAGIC, PAYLOAD_SALT
 
-	parser = ArgumentParser(description="A script to sign HvKeysExecute payloads")
+	parser = ArgumentParser(description="A script to sign XeKeysExecute payloads")
 	parser.add_argument("input", type=str, help="The payload executable to sign")
 	parser.add_argument("output", type=str, help="The signed payload file")
 	args = parser.parse_args()
@@ -25,7 +25,7 @@ def main() -> None:
 	hvx_key = urandom(0x10)
 
 	# build header
-	hvx_hdr = pack(">2H 3I 16s 256x", PAYLOAD_MAGIC, 0xDEAD, 0, 0x120, len(payload), hvx_key)
+	hvx_hdr = pack(">4H 2I 16s 256x", PAYLOAD_MAGIC, 0xDEAD, 0, 0x120, len(payload), hvx_key)
 
 	# prepend header to payload
 	payload = bytearray(hvx_hdr + payload)

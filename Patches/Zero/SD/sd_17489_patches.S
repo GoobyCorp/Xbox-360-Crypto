@@ -10,18 +10,18 @@
 _start:
 
 .set SPR_HRMOR, 0x139
-.set CD_ORIG_SIZE, 0x00004F30
+.set CD_ORIG_SIZE, 0x4F30
 .set FLASH_BASE, 0xC8000000
-.set XELL_OFFSET, 0x00B80000
+.set XELL_OFFSET, 0xB80000
 .set XELL, (FLASH_BASE + XELL_OFFSET)
 
 #;============================================================================
 #;	check for poweron reason and start xell if needed - lis %r3, 0x300
 #;============================================================================
-	MAKEPATCH 0x00000310
-0:
-	bl		CheckXell
-9:
+#	MAKEPATCH 0x00000310
+#0:
+#	bl		CheckXell
+#9:
 
 #;============================================================================
 #;  remove pairing check         bne cr6, check_update_pairing

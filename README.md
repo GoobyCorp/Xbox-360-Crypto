@@ -42,7 +42,7 @@ This script was made to automate the SDK dumping process so that I can dynamical
 ### [xcp.py](xcp_dumper.py)
 A script made to decrypt XCP files delivered by the Xbox 360 CDN.
 
-### [hvx_signer.py](hvx_signer.py)
+### [hvx_signer.py](xekeys_signer.py)
 A script that can sign HvKeysExecute payloads.
 
 ### [xextool.py](xextool.py)

@@ -34,7 +34,7 @@
 	.short 0
 9:
 
-	KMAKEPATCH 0x80040468 
+	KMAKEPATCH 0x80040468
 0:                                      
 	.short 0x0760
 	.short 0
