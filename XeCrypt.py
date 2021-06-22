@@ -1069,6 +1069,75 @@ def check_page_ecc(data: Union[bytes, bytearray], spare: Union[bytes, bytearray]
 		return True
 	return False
 
+# helper classes
+class BLHeader:
+	include_nonce = True
+
+	magic = None
+	build = None
+	qfe = None
+	flags = None
+	entry_point = None
+	size = None
+
+	nonce = None
+
+	def __init__(self, data: Union[bytes, bytearray], include_nonce: bool = True):
+		self.include_nonce = include_nonce
+		self.reset()
+		self.parse(data)
+
+	def __bytes__(self) -> bytes:
+		data = pack(">2s 3H 2I", self.magic, self.build, self.qfe, self.flags, self.entry_point, self.size)
+		if self.include_nonce:
+			data += self.nonce
+		return data
+
+	def __dict__(self) -> dict:
+		dct = {"magic": self.magic, "build": self.build, "qfe": self.qfe, "flags": self.flags, "entry_point": self.entry_point, "size": self.size}
+		if self.include_nonce:
+			dct["nonce"] = self.nonce
+		return dct
+
+	def __getitem__(self, item: str) -> Union[bytes, int, bool]:
+		item = item.lower()
+		value = getattr(self, item, None)
+		if value is not None:
+			return value
+
+	def __setitem__(self, key: str, value):
+		key = key.lower()
+		if getattr(self, key, None) is not None:
+			setattr(self, key, value)
+
+	@property
+	def header_size(self) -> int:
+		if self.include_nonce:
+			return 0x20
+		return 0x10
+
+	@property
+	def padding_size(self) -> int:
+		return (16 - (self.size % 16)) % 16
+
+	@property
+	def requires_padding(self) -> bool:
+		return self.padding_size > 0
+
+	def parse(self, data: Union[bytes, bytearray]):
+		(self.magic, self.build, self.qfe, self.flags, self.entry_point, self.size) = unpack_from(">2s 3H 2I", data, 0)
+		if self.include_nonce:
+			(self.nonce,) = unpack_from("16s", data, 0x10)
+
+	def reset(self) -> None:
+		self.include_nonce = True
+		self.magic = None
+		self.build = None
+		self.qfe = None
+		self.flags = None
+		self.size = None
+		self.nonce = None
+
 # managed public key "interfaces"
 class PY_XECRYPT_RSA_KEY:
 	key_bytes = None
@@ -1234,6 +1303,9 @@ __all__ = [
 	"XECRYPT_RSAPRV_2048",
 	"XECRYPT_RSAPRV_4096",
 	"XECRYPT_SIG",
+
+	# helper classes
+	"BLHeader",
 
 	# managed key class
 	"PY_XECRYPT_RSA_KEY",

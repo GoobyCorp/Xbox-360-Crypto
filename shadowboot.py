@@ -66,6 +66,7 @@ class ShadowbootImage:
 
 	# shadowboot data (all decrypted)
 	smc_data = None
+	smc_config_data = None
 	kv_data = None
 	sb_data = None
 	sc_data = None
@@ -117,7 +118,7 @@ class ShadowbootImage:
 			img.map_shadowboot()
 
 			img.parse_smc()
-			#self.extract_smc_config()
+			# img.parse_smc_config()
 			img.parse_keyvault()
 
 			img.parse_sb_2bl()
@@ -174,6 +175,7 @@ class ShadowbootImage:
 		self.img_map = {}
 		self.nand_header = None
 		self.smc_data = None
+		self.smc_config_data = None
 		self.kv_data = None
 		self.sb_data = None
 		self.sc_data = None
@@ -211,20 +213,35 @@ class ShadowbootImage:
 		self.img_map["KV"] = {"offset": self.nand_header.kv_offset, "size": self.nand_header.kv_length}
 		self._stream.seek(self.nand_header.cb_offset)
 		for i in range(4):
-			header = self.read_header(SB_2BL_HEADER)  # all of them are the same
-			bl_name = bytes(header.header.magic).decode("utf8")
-			self.img_map[bl_name] = {"offset": self._stream.tell() - sizeof(header), "size": header.header.size, "header": header, "orig_nonce": bytes(header.nonce)}
-			if i != 3:  # don't seek for the last entry
-				self._stream.seek(header.header.size - 0x20, 1)
+			# all of them are the same
+			hdr = BLHeader(self._stream.read(0x20))
+			bl_name = hdr.magic.decode("UTF8")
+			self.img_map[bl_name] = {"offset": self._stream.tell() - hdr.header_size, "size": hdr.size, "header": hdr}
+			# derive keys
+			if bl_name == "SB":
+				self.img_map[bl_name]["key"] = XeCryptHmacSha(XECRYPT_1BL_KEY, hdr.nonce)[:0x10]
+				self.img_map[bl_name]["header"]["nonce"] = (b"\x00" * 0x10)
+			elif bl_name == "SC":
+				self.img_map[bl_name]["key"] = XeCryptHmacSha((b"\x00" * 0x10), hdr.nonce)[:0x10]
+				self.img_map[bl_name]["header"]["nonce"] = (b"\x00" * 0x10)
+			elif bl_name == "SD":
+				self.img_map[bl_name]["key"] = XeCryptHmacSha(self.img_map["SC"]["key"], hdr.nonce)[:0x10]
+				self.img_map[bl_name]["header"]["nonce"] = (b"\x00" * 0x10)
+			elif bl_name == "SE":
+				self.img_map[bl_name]["key"] = XeCryptHmacSha(self.img_map["SD"]["key"], hdr.nonce)[:0x10]
+				self.img_map[bl_name]["header"]["nonce"] = (b"\x00" * 0x10)
+			# don't seek for the last entry
+			if i != 3:
+				self._stream.seek(hdr.size - 0x20, 1)
 
 	def parse_smc(self) -> None:
 		if self.img_map["SMC"]["offset"] > 0:
 			self._stream.seek(self.img_map["SMC"]["offset"])
 			self.smc_data = XeCryptSmcDecrypt(self._stream.read(self.img_map["SMC"]["size"]))
 
-	#def extract_smc_config(self) -> None:
-	#    self._stream.seek(self.nand_header.smc_config_offset)
-	#    self.smc_config_data = self._stream.read(SMC_CONFIG_SIZE)
+	# def parse_smc_config(self) -> None:
+	# 	self._stream.seek(self.nand_header.smc_config_offset)
+	# 	self.smc_config_data = self._stream.read(SMC_CONFIG_SIZE)
 
 	def parse_keyvault(self) -> None:
 		if self.img_map["KV"]["offset"] > 0:
@@ -233,67 +250,51 @@ class ShadowbootImage:
 
 	def parse_sb_2bl(self) -> None:
 		# seek to the CB/SB/2BL start
-		self._stream.seek(self.img_map["SB"]["offset"] + sizeof(self.img_map["SB"]["header"]))
+		self._stream.seek(self.img_map["SB"]["offset"] + 0x20)
 		# 16-byte alignment
-		self.img_map["SB"]["pad_size"] = (self.img_map["SB"]["size"] + 0xF) & ~0xF
+		# self.img_map["SB"]["pad_size"] = (self.img_map["SB"]["size"] + 0xF) & ~0xF
 		# read out the encrypted bytes after the header
-		SB_2BL_ENC = self._stream.read(self.img_map["SB"]["size"] - sizeof(self.img_map["SB"]["header"]))
-		# generate the new RC4 key with the 1BL key as the key and the SB's nonce as the data
-		SB_2BL_KEY = XeCryptHmacSha(XECRYPT_1BL_KEY, bytes(self.img_map["SB"]["header"].nonce))[:0x10]
+		sb_2bl_enc = self._stream.read(self.img_map["SB"]["size"] - 0x20)
 		# decrypt the CB/SB/2BL
-		SB_2BL_DEC = XeCryptRc4Ecb(SB_2BL_KEY, SB_2BL_ENC)
-		# recreate the CB/SB/2BL header
-		self.img_map["SB"]["header"].nonce = (c_ubyte * 0x10).from_buffer_copy(SB_2BL_KEY)
+		sb_2bl_dec = XeCryptRc4Ecb(self.img_map["SB"]["key"], sb_2bl_enc)
 		# prepend the header to the decrypted data
-		self.sb_data = bytes(self.img_map["SB"]["header"]) + SB_2BL_DEC + (b"\x00" * (self.img_map["SB"]["pad_size"] - self.img_map["SB"]["size"]))
+		self.sb_data = bytes(self.img_map["SB"]["header"]) + sb_2bl_dec # + (b"\x00" * (self.img_map["SB"]["pad_size"] - self.img_map["SB"]["size"]))
 
 	def parse_sc_3bl(self) -> None:
 		# seek to the CC/SC/3BL start
-		self._stream.seek(self.img_map["SC"]["offset"] + sizeof(self.img_map["SC"]["header"]))
+		self._stream.seek(self.img_map["SC"]["offset"] + 0x20)
 		# 16-byte alignment
-		self.img_map["SC"]["pad_size"] = (self.img_map["SC"]["size"] + 0xF) & ~0xF
+		# self.img_map["SC"]["pad_size"] = (self.img_map["SC"]["size"] + 0xF) & ~0xF
 		# read out the encrypted bytes after the header
-		SC_3BL_ENC = self._stream.read(self.img_map["SC"]["size"] - sizeof(self.img_map["SC"]["header"]))
-		# generate the new RC4 key with 0x10 null bytes as the key and the SC's nonce as the data
-		SC_3BL_KEY = XeCryptHmacSha((b"\x00" * 0x10), bytes(self.img_map["SC"]["header"].nonce))[:0x10]  # uses a 0x10 length null key to in CC/SC/3BL
+		sc_3bl_enc = self._stream.read(self.img_map["SC"]["size"] - 0x20)
 		# decrypt the CC/SC/3BL
-		SC_3BL_DEC = XeCryptRc4Ecb(SC_3BL_KEY, SC_3BL_ENC)
-		# recreate the CC/SC/3BL header
-		self.img_map["SC"]["header"].nonce = (c_ubyte * 0x10).from_buffer_copy(SC_3BL_KEY)
+		sc_3bl_dec = XeCryptRc4Ecb(self.img_map["SC"]["key"], sc_3bl_enc)
 		# prepend the header to the decrypted data
-		self.sc_data = bytes(self.img_map["SC"]["header"]) + SC_3BL_DEC + (b"\x00" * (self.img_map["SC"]["pad_size"] - self.img_map["SC"]["size"]))
+		self.sc_data = bytes(self.img_map["SC"]["header"]) + sc_3bl_dec # + (b"\x00" * (self.img_map["SC"]["pad_size"] - self.img_map["SC"]["size"]))
 
 	def parse_sd_4bl(self) -> None:
 		# seek to the CD/SD/4BL start
-		self._stream.seek(self.img_map["SD"]["offset"] + sizeof(self.img_map["SD"]["header"]))
+		self._stream.seek(self.img_map["SD"]["offset"] + 0x20)
 		# 16-byte alignment
-		self.img_map["SD"]["pad_size"] = (self.img_map["SD"]["size"] + 0xF) & ~0xF
+		# self.img_map["SD"]["pad_size"] = (self.img_map["SD"]["size"] + 0xF) & ~0xF
 		# read out the encrypted bytes after the header
-		SD_4BL_ENC = self._stream.read(self.img_map["SD"]["size"] - sizeof(self.img_map["SD"]["header"]))
-		# generate the new RC4 key with the SC's nonce as the key and the SD's nonce as the data
-		SD_4BL_KEY = XeCryptHmacSha(bytes(self.img_map["SC"]["header"].nonce), bytes(self.img_map["SD"]["header"].nonce))[:0x10]
+		sd_4bl_enc = self._stream.read(self.img_map["SD"]["size"] - 0x20)
 		# decrypt the CD/SD/4BL
-		SD_4BL_DEC = XeCryptRc4Ecb(SD_4BL_KEY, SD_4BL_ENC)
-		# recreate the CD/SD/4BL header
-		self.img_map["SD"]["header"].nonce = (c_ubyte * 0x10).from_buffer_copy(SD_4BL_KEY)
+		sd_4bl_dec = XeCryptRc4Ecb(self.img_map["SD"]["key"], sd_4bl_enc)
 		# prepend the header to the decrypted data
-		self.sd_data = bytes(self.img_map["SD"]["header"]) + SD_4BL_DEC + (b"\x00" * (self.img_map["SD"]["pad_size"] - self.img_map["SD"]["size"]))
+		self.sd_data = bytes(self.img_map["SD"]["header"]) + sd_4bl_dec # + (b"\x00" * (self.img_map["SD"]["pad_size"] - self.img_map["SD"]["size"]))
 
 	def parse_se_5bl(self) -> None:
 		# seek to the CE/SE/5BL start
-		self._stream.seek(self.img_map["SE"]["offset"] + sizeof(self.img_map["SE"]["header"]))
-		# calculate padding
-		self.img_map["SE"]["pad_size"] = (self.img_map["SE"]["size"] + 0xF) & ~0xF
+		self._stream.seek(self.img_map["SE"]["offset"] + 0x20)
+		# 16-byte alignment
+		# self.img_map["SE"]["pad_size"] = (self.img_map["SE"]["size"] + 0xF) & ~0xF
 		# read out the encrypted bytes after the header
-		SE_5BL_ENC = self._stream.read(self.img_map["SE"]["size"] - sizeof(self.img_map["SE"]["header"]))
-		# generate the new RC4 key with the SD's nonce as the key and the SE's nonce as the data
-		SE_5BL_KEY = XeCryptHmacSha(bytes(self.img_map["SD"]["header"].nonce), bytes(self.img_map["SE"]["header"].nonce))[:0x10]
+		se_5bl_enc = self._stream.read(self.img_map["SE"]["size"] - 0x20)
 		# decrypt the CE/SE/5BL
-		SE_5BL_DEC = XeCryptRc4Ecb(SE_5BL_KEY, SE_5BL_ENC)
-		# recreate the CE/SE/5BL header
-		self.img_map["SE"]["header"].nonce = (c_ubyte * 0x10).from_buffer_copy(SE_5BL_KEY)
+		se_5bl_dec = XeCryptRc4Ecb(self.img_map["SE"]["key"], se_5bl_enc)
 		# prepend the header to the decrypted data
-		self.se_data = bytes(self.img_map["SE"]["header"]) + SE_5BL_DEC + (b"\x00" * (self.img_map["SE"]["pad_size"] - self.img_map["SE"]["size"]))
+		self.se_data = bytes(self.img_map["SE"]["header"]) + se_5bl_dec # + (b"\x00" * (self.img_map["SE"]["pad_size"] - self.img_map["SE"]["size"]))
 
 	def decompress_se_5bl(self) -> None:
 		data = decompress_se(self.se_data)
@@ -359,10 +360,10 @@ class ShadowbootImage:
 			][num >> 4 & 15]
 			self.smc_version = f"{num >> 4 & 15}.{num & 15} ({self.smc_data[257]}.{self.smc_data[258]})"
 		# (self.kernel_version,) = unpack_from(">H", self.kernel_data, 0x40C)
-		self.sb_build = self.img_map["SB"]["header"].header.build
-		self.sc_build = self.img_map["SC"]["header"].header.build
-		self.sd_build = self.img_map["SD"]["header"].header.build
-		self.se_build = self.img_map["SE"]["header"].header.build
+		self.sb_build = self.img_map["SB"]["header"]["build"]
+		self.sc_build = self.img_map["SC"]["header"]["build"]
+		self.sd_build = self.img_map["SD"]["header"]["build"]
+		self.se_build = self.img_map["SE"]["header"]["build"]
 		(self.hypervisor_version,) = unpack_from(">H", self.hypervisor_data, 0x10)
 		self.kernel_version = self.se_build
 
@@ -744,6 +745,8 @@ def main() -> None:
 
 		if args.all or args.smc:
 			write_file(join(args.output, "SMC_dec.bin"), img.smc_data)
+		# if args.all or args.smc_config:
+		# 	write_file(join(args.output, "smc_config.bin"), img.smc_config_data)
 		if args.all or args.keyvault:
 			write_file(join(args.output, "KV_dec.bin"), img.kv_data)
 		if args.all or args.sb:

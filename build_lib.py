@@ -38,18 +38,18 @@ def assemble_patch(asm_filename: str, bin_filename: str, *includes) -> None:
 	Path("temp.elf").unlink()
 
 # C functions
-def decompress_se(data: (bytes, bytearray)) -> bytearray:
+def decompress_se(data: Union[bytes, bytearray]) -> bytearray:
 	(u_size,) = unpack_from(">I", data, 0x28)
 	c_buf = (c_ubyte * u_size)(*data)
 	assert libcedll.ceDecompress(c_buf, len(data)) == u_size, "SE decompression failed"
 	return bytearray(c_buf)
 
-def compress_se(data: (bytes, bytearray)) -> bytearray:
+def compress_se(data: Union[bytes, bytearray]) -> bytearray:
 	c_buf = (c_ubyte * len(data))(*data)
 	new_size = libcedll.ceCompress(c_buf, len(data))
 	return bytearray(c_buf)[:new_size]
 
-def sign_sd_4bl(key: (bytes, bytearray), salt: (bytes, bytearray), data: (bytes, bytearray)) -> bytearray:
+def sign_sd_4bl(key: Union[bytes, bytearray], salt: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bytearray:
 	if type(data) == bytes:
 		data = bytearray(data)
 
@@ -59,12 +59,12 @@ def sign_sd_4bl(key: (bytes, bytearray), salt: (bytes, bytearray), data: (bytes,
 	pack_into(f"<{len(sig)}s", data, 0x20, sig)
 	return data
 
-def verify_sd_4bl(key: (bytes, bytearray), salt: (bytes, bytearray), data: (bytes, bytearray)) -> bool:
+def verify_sd_4bl(key: Union[bytes, bytearray], salt: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bool:
 	sig = data[0x20:0x20 + 256]
 	h = XeCryptRotSumSha(data[:0x10] + data[0x120:])
 	return XeCryptBnQwBeSigVerify(sig, h, salt, key)
 
-def encrypt_bl(key: (bytes, bytearray), data: (bytes, bytearray)) -> bytearray:
+def encrypt_bl(key: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bytearray:
 	with BytesIO(data) as bio:
 		bio.seek(0x20)  # skip header and nonce
 		bl_data_enc = XeCryptRc4Ecb(key, bio.read())  # read all of the remaining data and encrypt it
@@ -73,7 +73,7 @@ def encrypt_bl(key: (bytes, bytearray), data: (bytes, bytearray)) -> bytearray:
 		data = bio.getvalue()
 	return bytearray(data)
 
-def apply_jump_sd_4bl(data: (bytes, bytearray), size: int) -> bytearray:
+def apply_jump_sd_4bl(data: Union[bytes, bytearray], size: int) -> bytearray:
 	with StreamIO(data, Endian.BIG) as sio:
 		while True:
 			if sio.read_uint32() == 0x4C000024:
