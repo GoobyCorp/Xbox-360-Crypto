@@ -12,7 +12,7 @@ KEY_NAMES = {
 	0xE86E10FD: "Master_pub",
 	0x4233AD81: "PIRS_prv_dev",
 	0x4C523F84: "PIRS_pub_retail",
-	0x490C9D35: "SD_prv",
+	0x490C9D35: "SB_prv",
 	0xE4F01473: "XMACS_pub"
 }
 

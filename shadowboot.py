@@ -7,6 +7,7 @@ __thanks__ = ["tydye81", "c0z", "golden"]
 
 from io import BytesIO
 from json import loads
+from pathlib import Path
 from binascii import crc32
 from ctypes import sizeof, c_ubyte
 from argparse import ArgumentParser
@@ -34,7 +35,7 @@ SHADOWBOOT_SIZE = 0xD4000
 
 # keys
 ONE_BL_KEY = None
-SD_PRV_KEY = None
+SB_PRV_KEY = None
 
 def checksum_file(filename: str) -> int:
 	cksm = 0
@@ -393,20 +394,22 @@ class ShadowbootImage:
 		return True
 
 def main() -> None:
-	global MANIFEST_FILE, ONE_BL_KEY, SD_PRV_KEY
+	global MANIFEST_FILE, ONE_BL_KEY, SB_PRV_KEY
 
 	parser = ArgumentParser(description=__description__)
+	parser.add_argument("--nochecks", action="store_true", help="Perform shadowboot parsing without integrity checks")
 	subparsers = parser.add_subparsers(dest="command")
 
 	build_parser = subparsers.add_parser("build")
 	# build_parser.add_argument("input", type=str, help="The input path")
 	build_parser.add_argument("output", type=str, help="The output path")
 	build_parser.add_argument("-m", "--manifest", type=str, help="The build manifest file")
+	build_parser.add_argument("-b", "--build-dir", type=str, help="The build directory path")
 
 	extract_parser = subparsers.add_parser("extract")
 	extract_parser.add_argument("input", type=str, help="The input path")
 	extract_parser.add_argument("output", type=str, help="The output path")
-	extract_parser.add_argument("--nochecks", action="store_true", help="Extract without doing sanity checks")
+	# extract_parser.add_argument("--nochecks", action="store_true", help="Extract without doing sanity checks")
 	# extract_parser.add_argument("--raw", action="store_true", help="No decryption performed")
 	extract_parser.add_argument("--all", action="store_true", help="Extract all sections")
 	extract_parser.add_argument("--smc", action="store_true", help="Extract the SMC")
@@ -444,58 +447,76 @@ def main() -> None:
 	assert crc32(ONE_BL_KEY) == 0xD416B5E1, "Invalid 1BL public key"
 
 	# this used to sign the SD and it's public key is in SB
-	SD_PRV_KEY = read_file("Keys/SD_prv.bin")
-	assert crc32(SD_PRV_KEY) == 0x490C9D35, "Invalid SD private key"
+	SB_PRV_KEY = read_file("Keys/SB_prv.bin")
+	assert crc32(SB_PRV_KEY) == 0x490C9D35, "Invalid SD private key"
 
 	if args.command == "build":
-		# load the manifest file
-		print("Loading build manifest...")
-		build_manifest = loads(read_file(args.manifest, True))
+		if args.manifest is not None:  # building with a manifest file
+			# load the manifest file
+			print("Loading build manifest...")
+			build_manifest = loads(read_file(args.manifest, True))
 
-		# remove comments
-		del build_manifest["_comment"]
-		del build_manifest["build"]["_comment"]
-		del build_manifest["options"]["_comment"]
-		del build_manifest["files"]["_comment"]
+			# remove comments
+			del build_manifest["_comment"]
+			del build_manifest["build"]["_comment"]
+			del build_manifest["options"]["_comment"]
+			del build_manifest["files"]["_comment"]
 
-		# settings
-		test_kit_compile = build_manifest["options"]["test_kit"]
-		sd_code_enabled = build_manifest["options"]["SD_code_enabled"]
-		sd_patches_enabled = build_manifest["options"]["SD_patches_enabled"]
+			# settings
+			test_kit_compile = build_manifest["options"]["test_kit"]
+			sd_code_enabled = build_manifest["options"]["SD_code_enabled"]
+			sd_patches_enabled = build_manifest["options"]["SD_patches_enabled"]
 
-		# paths
-		print("Setting up paths...")
-		base_dir = join(BUILD_DIR, build_manifest["files"]["base_directory"])
-		base_img_file = join(base_dir, build_manifest["files"]["base_image"])
-		sb_file = join(base_dir, build_manifest["files"]["SB"])
-		sc_file = join(base_dir, build_manifest["files"]["SC"])
-		sd_file = join(base_dir, build_manifest["files"]["SD"])
-		se_file = join(base_dir, build_manifest["files"]["SE"])
-		kernel_file = join(base_dir, build_manifest["files"]["kernel"])
-		hypervisor_file = join(base_dir, build_manifest["files"]["HV"])
-		sd_patches_file = join(base_dir, build_manifest["files"]["SD_patches"])
-		sd_code_file = join(base_dir, build_manifest["files"]["SD_code"])
-		hvk_patches_file = join(base_dir, build_manifest["files"]["HVK_patches"])
-		# patch_loader_file = join("bin/loaders", "patch_loader.bin")
+			# paths
+			print("Setting up paths...")
+			bd = Path(build_manifest["files"]["base_directory"])
+			base_img_file = bd / build_manifest["files"]["base_image"]
+			sb_file = bd / build_manifest["files"]["SB"]
+			sc_file = bd / build_manifest["files"]["SC"]
+			sd_file = bd / build_manifest["files"]["SD"]
+			se_file = bd / build_manifest["files"]["SE"]
+			kernel_file = bd / build_manifest["files"]["kernel"]
+			hypervisor_file = bd / build_manifest["files"]["HV"]
+			sd_patches_file = bd / build_manifest["files"]["SD_patches"]
+			sd_code_file = bd / build_manifest["files"]["SD_code"]
+			hvk_patches_file = bd / build_manifest["files"]["HVK_patches"]
+			# patch_loader_file = join("bin/loaders", "patch_loader.bin")
 
-		# check build manifest files
-		print("Verifying checksums...")
+			# check build manifest files
+			print("Verifying checksums...")
 
-		all_files_available = True
-		for (key, value) in build_manifest["files"].items():
-			if not key.endswith("_checksum"):
-				if value != "":
-					if key == "base_image":
-						if not isfile(value):
-							all_files_available = False
-					elif key == "base_directory":
-						if not isdir(join(BUILD_DIR, value)):
-							all_files_available = False
-					else:
-						if not isfile(join(base_dir, value)):
-							all_files_available = False
-			else:
-				assert verify_checksum(build_manifest["files"][key.replace("_checksum", "")], value), f"Invalid {key}"
+			all_files_available = True
+			for (key, value) in build_manifest["files"].items():
+				if not key.endswith("_checksum"):
+					if value != "":
+						if key == "base_image":
+							if not isfile(value):
+								all_files_available = False
+						elif key == "base_directory":
+							if not (Path(BUILD_DIR) / value).is_dir():
+								all_files_available = False
+						else:
+							if not (bd / value).is_file():
+								all_files_available = False
+				else:
+					assert verify_checksum(build_manifest["files"][key.replace("_checksum", "")], value), f"Invalid {key}"
+		elif args.build_dir is not None:  # using a build directory vs a manifest
+			bd = Path(args.build_dir)
+			sb_file = bd / "sb.bin"
+			sc_file = bd / "sc.bin"
+			sd_file = bd / "sd.bin"
+			se_file = bd / "se.bin"
+			kernel_file = bd / "kernel.bin"
+			hypervisor_file = bd / "hypervisor.bin"
+			base_img_file = bd / "xboxrom.bin"
+
+			# patches
+			sd_code_file = bd / "sdc.bin"  # SD code file
+			sd_patches_file = bd / "sdp.bin"  # SD patches file
+			hvk_patches_file = bd / "hvk.bin"
+		else:
+			print("Building requires -m or -b arguments!")
+			return
 
 		# all_files_available = all([isfile(x) for x in build_manifest["files"]])
 		# print(all_files_available)
@@ -514,7 +535,7 @@ def main() -> None:
 		# assert verify_checksum(khv_patches_file, build_manifest["files"]["HVK_patches_checksum"]), "Invalid HVK patches checksum"
 
 		# output_file = join(args.output, "shadowboot.bin")
-		output_file = args.output
+		output_file = Path(args.output)
 
 		# compile patches
 		# print("Compiling HV/kernel patches...")
@@ -527,18 +548,18 @@ def main() -> None:
 
 		# check for the base image and load it if it exists
 		base_img = None
-		base_img_available = isfile(base_img_file)
+		base_img_available = base_img_file.is_file()
 		if base_img_available:
-			base_img = ShadowbootImage.parse(base_img_file, not build_manifest["options"]["base_image_checks_disabled"])
+			base_img = ShadowbootImage.parse(base_img_file, not args.nochecks)
 
-		if isfile(kernel_file) and isfile(hypervisor_file):
+		if kernel_file.is_file() and hypervisor_file.is_file():
 			print("Reading raw HV/kernel...")
-			kernel = read_file(kernel_file)
-			hypervisor = read_file(hypervisor_file)
+			kernel = kernel_file.read_bytes()
+			hypervisor = hypervisor_file.read_bytes()
 			se_data = hypervisor + kernel
 		elif isfile(se_file):
 			print("Decompressing SE...")
-			se_data = decompress_se(read_file(se_file))
+			se_data = decompress_se(se_file.read_bytes())
 		elif base_img_available:
 			print("Using fallback image HV/kernel...")
 			se_data = base_img.se_data
@@ -556,7 +577,7 @@ def main() -> None:
 		# cs = Cs(CS_ARCH_PPC, CS_MODE_64 + CS_MODE_BIG_ENDIAN)
 
 		print("Applying patches to HV and kernel...")
-		se_data = apply_patches(se_data, hvk_patches_file)
+		se_data = apply_patches(se_data, hvk_patches_file.read_bytes())
 
 		# if test_kit_compile:
 		# boot animation patch
@@ -624,7 +645,7 @@ def main() -> None:
 		else:
 			print("SMC_dec.bin and SMC_enc.bin not found, skipping...")
 
-		# KeyVault
+		# KeyVault (no idea if it even loads it)
 		kv_offset = len(new_img)
 		if isfile(join(BUILD_DIR, "KV_dec.bin")):
 			nand_header.kv_offset = kv_offset
@@ -653,10 +674,10 @@ def main() -> None:
 		print(f"Encrypting and writing SB @ 0x{sb_offset:04X}...")
 		nonce_sb = bytearray(read_file(sb_file))
 		pack_into("<16s", nonce_sb, 0x10, new_sb_nonce)
-		if test_kit_compile:
-			print("Compiling for test kit, SB signature will be broken!")
-			pack_into("<4s", nonce_sb, 0x1348, b"\x48\x00\x01\x94")
-			pack_into("<4s", nonce_sb, 0x1E10, b"\x4E\x80\x00\x20")
+		# if test_kit_compile:
+		# 	print("Compiling for test kit, SB signature will be broken!")
+		# 	pack_into("<4s", nonce_sb, 0x1348, b"\x48\x00\x01\x94")
+		# 	pack_into("<4s", nonce_sb, 0x1E10, b"\x4E\x80\x00\x20")
 		sb_enc = encrypt_bl(new_sb_key, nonce_sb)
 		new_img += sb_enc
 		sc_offset = len(new_img)
@@ -679,7 +700,7 @@ def main() -> None:
 		# write the nonce into the image
 		pack_into("<16s", se_com, 0x10, new_se_nonce)
 		# append padding
-		se_com += (b"\x00" * (((len(se_com) + 0xF) & ~0xF) - len(se_com)))
+		se_com += (b"\x00" * calc_pad_size(len(se_com)))
 		print("Hashing SE...")
 		se_hash = XeCryptRotSumSha(se_com[:0x10] + se_com[0x20:])
 		print("Encrypting SE...")
@@ -692,19 +713,19 @@ def main() -> None:
 		pack_into("<20s", nonce_sd, 0x24C, se_hash)
 		sd_patched = nonce_sd
 		# load additional binary data to run after the SD here
-		if sd_code_enabled and isfile(sd_code_file):
+		if sd_code_file.is_file():
 			print("Patching RFID jump and appending SD code binary...")
 			sd_patched = apply_jump_sd_4bl(sd_patched, unpack_from(">I", sd_patched, 0xC)[0])
 			# sd_patched += read_file(patch_loader_file)
-			sd_patched += read_file(sd_code_file)
+			sd_patched += sd_code_file.read_bytes()
 		# apply SD patches directly
-		if sd_patches_enabled and isfile(sd_patches_file):
+		if sd_patches_file.is_file():
 			print("Applying SD patches directly...")
-			sd_patched = apply_patches(sd_patched, read_file(sd_patches_file))
+			sd_patched = apply_patches(sd_patched, sd_patches_file.read_bytes())
 		# apply padding
-		sd_patched += (b"\x00" * (((len(sd_patched) + 0xF) & ~0xF) - len(sd_patched)))
+		sd_patched += (b"\x00" * calc_pad_size(len(sd_patched)))
 		pack_into(">I", sd_patched, 0xC, len(sd_patched))  # set the new size
-		sd_res = sign_sd_4bl(SD_PRV_KEY, XECRYPT_SD_SALT, sd_patched)
+		sd_res = sign_sd_4bl(SB_PRV_KEY, XECRYPT_SD_SALT, sd_patched)
 		sd_enc = encrypt_bl(new_sd_key, sd_res)
 		new_img += sd_enc
 		se_offset = len(new_img)
@@ -719,7 +740,7 @@ def main() -> None:
 
 		# write the output image
 		print("Writing output image...")
-		write_file(output_file, new_img)
+		output_file.write_bytes(new_img)
 		img_size = len(new_img)
 
 		print(f"Image size: {img_size}/{SHADOWBOOT_SIZE} (0x{img_size:04X}/0x{SHADOWBOOT_SIZE:04X}) bytes")
@@ -728,14 +749,16 @@ def main() -> None:
 			print(f"Image reduced by {red_size} (0x{red_size:04X}) bytes!")
 
 		# sanity checks on new image
-		if test_kit_compile:
-			print("Image is test kit compiled, verification is disabled!")
-		else:
-			ShadowbootImage.parse(new_img)
-			print("Modified image verified!")
+		# if test_kit_compile:
+		# 	print("Image is test kit compiled, verification is disabled!")
+		# else:
+		ShadowbootImage.parse(new_img)
+		print("Modified image verified!")
 
-		print(f"Final image location: \"{abspath(output_file)}\"")
+		print(f"Final image location: \"{str(output_file.absolute())}\"")
 	elif args.command == "extract":
+		op = Path(args.output)
+
 		img = ShadowbootImage.parse(read_file(args.input), not args.nochecks)
 
 		print(f"Console Type:       {img.console_type}")
@@ -744,32 +767,33 @@ def main() -> None:
 		print(f"HyperVisor Version: {img.hypervisor_version}")
 
 		if args.all or args.smc:
-			write_file(join(args.output, "SMC_dec.bin"), img.smc_data)
+			# write_file(join(args.output, "SMC_dec.bin"), img.smc_data)
+			(op / "SMC_dec.bin").write_bytes(img.smc_data)
 		# if args.all or args.smc_config:
 		# 	write_file(join(args.output, "smc_config.bin"), img.smc_config_data)
 		if args.all or args.keyvault:
-			write_file(join(args.output, "KV_dec.bin"), img.kv_data)
+			(op / "KV_dec.bin").write_bytes(img.kv_data)
 		if args.all or args.sb:
-			write_file(join(args.output, f"sb_{img.sb_build}.bin"), img.sb_data)
+			(op / f"sb_{img.sb_build}.bin").write_bytes(img.sb_data)
 		if args.all or args.sc:
-			write_file(join(args.output, f"sc_{img.sc_build}.bin"), img.sc_data)
+			(op / f"sc_{img.sc_build}.bin").write_bytes(img.sc_data)
 		if args.all or args.sd:
-			write_file(join(args.output, f"sd_{img.sd_build}.bin"), img.sd_data)
+			(op / f"sd_{img.sd_build}.bin").write_bytes(img.sd_data)
 		if args.all or args.se:
-			write_file(join(args.output, f"se_{img.se_build}.bin"), img.se_data)
+			(op / f"se_{img.se_build}.bin").write_bytes(img.se_data)
 		if args.all or args.kernel:
-			write_file(join(args.output, "kernel.exe"), img.kernel_data)
+			(op / "kernel.exe").write_bytes(img.kernel_data)
 		if args.all or args.hypervisor:
-			write_file(join(args.output, "hypervisor.bin"), img.hypervisor_data)
+			(op / "hypervisor.bin").write_bytes(img.hypervisor_data)
 		if args.all or args.loader:
 			if len(img.patches) > 0:
-				write_file(join(args.output, "patch_loader.bin"), img.patches[0]["patch_loader"])
+				(op / "patch_loader.bin").write_bytes(img.patches[0]["patch_loader"])
 			else:
 				print("No patch loader found!")
 		if args.all or args.patches:
 			if len(img.patches) > 1:
 				for patch in img.patches[1:]:
-					write_file(join(args.output, f"{patch['address']:04X}.bin"), patch["patch_code"])
+					(op / f"{patch['address']:04X}.bin").write_bytes(patch["patch_code"])
 			else:
 				print("No patches found!")
 	elif args.command == "info":

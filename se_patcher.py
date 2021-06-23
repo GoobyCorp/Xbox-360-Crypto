@@ -8,7 +8,7 @@ from XeCrypt import *
 from build_lib import *
 
 def main() -> None:
-	SD_PRV_KEY = Path("Keys/SD_prv.bin").read_bytes()
+	SD_PRV_KEY = Path("Keys/SB_prv.bin").read_bytes()
 
 	sd_data = bytearray(Path("Output/Winchester/sd_17489.bin").read_bytes())
 	se_data = bytearray(Path("Output/Winchester/hypervisor.bin").read_bytes() + Path("Output/Winchester/kernel.exe").read_bytes())

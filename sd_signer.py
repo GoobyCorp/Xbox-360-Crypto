@@ -26,7 +26,7 @@ def valid_file(parser: ArgumentParser, filename: str) -> Path:
 		return Path(filename)
 
 def main() -> None:
-	SD_PRV_KEY = Path("Keys/SD_prv.bin").read_bytes()
+	SD_PRV_KEY = Path("Keys/SB_prv.bin").read_bytes()
 
 	parser = ArgumentParser(description=__description__)
 	parser.add_argument("input", type=lambda x: valid_file(parser, x), help="The CD/SD to sign")

@@ -49,20 +49,24 @@ def compress_se(data: Union[bytes, bytearray]) -> bytearray:
 	new_size = libcedll.ceCompress(c_buf, len(data))
 	return bytearray(c_buf)[:new_size]
 
-def sign_sd_4bl(key: Union[bytes, bytearray], salt: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bytearray:
+def sign_sd_4bl(key: Union[PY_XECRYPT_RSA_KEY, bytes, bytearray], salt: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bytearray:
+	if type(key) in [bytes, bytearray]:
+		key = PY_XECRYPT_RSA_KEY(key)
 	if type(data) == bytes:
 		data = bytearray(data)
 
 	h = XeCryptRotSumSha(data[:0x10] + data[0x120:])
-	sig = XeCryptBnQwBeSigCreate(h, salt, key)
-	sig = XeCryptBnQwNeRsaPrvCrypt(sig, key)
+	sig = key.sig_create(h, salt)
 	pack_into(f"<{len(sig)}s", data, 0x20, sig)
 	return data
 
-def verify_sd_4bl(key: Union[bytes, bytearray], salt: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bool:
+def verify_sd_4bl(key: Union[PY_XECRYPT_RSA_KEY, bytes, bytearray], salt: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bool:
+	if type(key) in [bytes, bytearray]:
+		key = PY_XECRYPT_RSA_KEY(key)
+
 	sig = data[0x20:0x20 + 256]
 	h = XeCryptRotSumSha(data[:0x10] + data[0x120:])
-	return XeCryptBnQwBeSigVerify(sig, h, salt, key)
+	return key.sig_verify(sig, h, salt)
 
 def encrypt_bl(key: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bytearray:
 	with BytesIO(data) as bio:
