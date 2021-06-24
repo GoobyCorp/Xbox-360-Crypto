@@ -21,7 +21,7 @@ from build_lib import *
 # constants
 BIN_DIR = "bin"
 XELL_DIR = "XeLL"
-BUILD_DIR = "Build"
+BUILD_DIR = Path("Build")
 PATCH_DIR = "Patches"
 BUILD_VER = 17559
 MANIFEST_FILE = "manifest.json"
@@ -54,6 +54,9 @@ def pad_hex(i: int) -> str:
 	while len(h) < 8:
 		h = "0" + h
 	return h
+
+def path_type(parser: ArgumentParser, value: str) -> Path:
+	return Path(value)
 
 class ShadowbootImage:
 	# I/O stream
@@ -402,13 +405,13 @@ def main() -> None:
 
 	build_parser = subparsers.add_parser("build")
 	# build_parser.add_argument("input", type=str, help="The input path")
-	build_parser.add_argument("output", type=str, help="The output path")
-	build_parser.add_argument("-m", "--manifest", type=str, help="The build manifest file")
-	build_parser.add_argument("-b", "--build-dir", type=str, help="The build directory path")
+	build_parser.add_argument("output", type=lambda x: path_type(build_parser, x), help="The output path")
+	build_parser.add_argument("-m", "--manifest", type=lambda x: path_type(build_parser, x), help="The build manifest file")
+	build_parser.add_argument("-b", "--build-dir", type=lambda x: path_type(build_parser, x), help="The build directory path")
 
 	extract_parser = subparsers.add_parser("extract")
-	extract_parser.add_argument("input", type=str, help="The input path")
-	extract_parser.add_argument("output", type=str, help="The output path")
+	extract_parser.add_argument("input", type=lambda x: path_type(extract_parser, x), help="The input path")
+	extract_parser.add_argument("output", type=lambda x: path_type(extract_parser, x), help="The output path")
 	# extract_parser.add_argument("--nochecks", action="store_true", help="Extract without doing sanity checks")
 	# extract_parser.add_argument("--raw", action="store_true", help="No decryption performed")
 	extract_parser.add_argument("--all", action="store_true", help="Extract all sections")
@@ -424,23 +427,13 @@ def main() -> None:
 	extract_parser.add_argument("--patches", action="store_true", help="Extract HV/kernel patches")
 
 	info_parser = subparsers.add_parser("info")
-	info_parser.add_argument("input", type=str, help="The input path")
+	info_parser.add_argument("input", type=lambda x: path_type(info_parser, x), help="The input path")
 
 	test_parser = subparsers.add_parser("test")
-	test_parser.add_argument("input", type=str, help="The input path")
-	test_parser.add_argument("output", type=str, help="The output path")
+	test_parser.add_argument("input", type=lambda x: path_type(test_parser, x), help="The input path")
+	test_parser.add_argument("output", type=lambda x: path_type(test_parser, x), help="The output path")
 
 	args = parser.parse_args()
-
-	#if hasattr(args, "input") and args.input:
-	#	assert isfile(args.input) or isdir(args.input), "The specified input path or directory doesn't exist"
-	# if hasattr(args, "output") and args.output:
-	#	assert isfile(args.output) or isdir(args.output), "The specified output path or directory doesn't exist"
-
-	#sb = ShadowbootImage(read_file("C://Users/John/Desktop/xboxrom_13146_patched.bin"), False)
-	#write_file("C://Users/John/Desktop/hv.bin", sb.hypervisor_data)
-	#write_file("C://Users/John/Desktop/kernel.exe", sb.kernel_data)
-	#exit(0)
 
 	# the 1BL public key
 	ONE_BL_KEY = read_file("Keys/1BL_pub.bin")
@@ -451,10 +444,10 @@ def main() -> None:
 	assert crc32(SB_PRV_KEY) == 0x490C9D35, "Invalid SD private key"
 
 	if args.command == "build":
-		if args.manifest is not None:  # building with a manifest file
+		if args.manifest.isfile():  # building with a manifest file
 			# load the manifest file
 			print("Loading build manifest...")
-			build_manifest = loads(read_file(args.manifest, True))
+			build_manifest = loads(args.manifest.read_text())
 
 			# remove comments
 			del build_manifest["_comment"]
@@ -501,50 +494,21 @@ def main() -> None:
 				else:
 					assert verify_checksum(build_manifest["files"][key.replace("_checksum", "")], value), f"Invalid {key}"
 		elif args.build_dir is not None:  # using a build directory vs a manifest
-			bd = Path(args.build_dir)
-			sb_file = bd / "sb.bin"
-			sc_file = bd / "sc.bin"
-			sd_file = bd / "sd.bin"
-			se_file = bd / "se.bin"
-			kernel_file = bd / "kernel.bin"
-			hypervisor_file = bd / "hypervisor.bin"
-			base_img_file = bd / "xboxrom.bin"
+			sb_file = args.build_dir / "sb.bin"
+			sc_file = args.build_dir / "sc.bin"
+			sd_file = args.build_dir / "sd.bin"
+			se_file = args.build_dir / "se.bin"
+			kernel_file = args.build_dir / "kernel.bin"
+			hypervisor_file = args.build_dir / "hypervisor.bin"
+			base_img_file = args.build_dir / "xboxrom.bin"
 
 			# patches
-			sd_code_file = bd / "sdc.bin"  # SD code file
-			sd_patches_file = bd / "sdp.bin"  # SD patches file
-			hvk_patches_file = bd / "hvk.bin"
+			sd_code_file = args.build_dir / "sdc.bin"  # SD code file
+			sd_patches_file = args.build_dir / "sdp.bin"  # SD patches file
+			hvk_patches_file = args.build_dir / "hvk.bin"
 		else:
 			print("Building requires -m or -b arguments!")
 			return
-
-		# all_files_available = all([isfile(x) for x in build_manifest["files"]])
-		# print(all_files_available)
-
-		# verify checksums if present
-		# print("Verifying checksums...")
-		# assert verify_checksum(base_img_file, build_manifest["files"]["base_image_checksum"]), "Invalid base image checksum"
-		# assert verify_checksum(sb_file, build_manifest["files"]["SB_checksum"]), "Invalid SB checksum"
-		# assert verify_checksum(sc_file, build_manifest["files"]["SC_checksum"]), "Invalid SC checksum"
-		# assert verify_checksum(sd_file, build_manifest["files"]["SD_checksum"]), "Invalid SD checksum"
-		# assert verify_checksum(se_file, build_manifest["files"]["SE_checksum"]), "Invalid SE checksum"
-		# assert verify_checksum(kernel_file, build_manifest["files"]["kernel_checksum"]), "Invalid kernel checksum"
-		# assert verify_checksum(hypervisor_file, build_manifest["files"]["HV_checksum"]), "Invalid HV checksum"
-		# assert verify_checksum(sd_patches_file, build_manifest["files"]["SD_patches_checksum"]), "Invalid SD patches checksum"
-		# assert verify_checksum(sd_code_file, build_manifest["files"]["SD_code_checksum"]), "Invalid SD code checksum"
-		# assert verify_checksum(khv_patches_file, build_manifest["files"]["HVK_patches_checksum"]), "Invalid HVK patches checksum"
-
-		# output_file = join(args.output, "shadowboot.bin")
-		output_file = Path(args.output)
-
-		# compile patches
-		# print("Compiling HV/kernel patches...")
-		# assemble_patch(join(PATCH_DIR, "HVK", f"{BUILD_VER}-dev", "RGLoader-dev.S"), hvk_patches_file, PATCH_DIR)
-		# print("Compiling XAM patches...")
-		# assemble_patch(join(PATCH_DIR, "XAM", f"{BUILD_VER}-dev", "rglXam.S"), f"xam_{BUILD_VER}.rglp", PATCH_DIR)
-
-		# assemble_patch(join(PATCH_DIR, "Test Kit", "patches.S"), "fakeanim.bin", PATCH_DIR)
-		# return
 
 		# check for the base image and load it if it exists
 		base_img = None
@@ -609,7 +573,7 @@ def main() -> None:
 			print("Using custom copyright...")
 			copyright = b"\xA9 " + build_manifest["build"]["copyright"].encode("UTF8")
 		else:
-			copyright = b"\xA9 2004-2019 Microsoft Corporation. All rights reserved"
+			copyright = b"\xA9 2004-2021 Microsoft Corporation. All rights reserved"
 
 		if build_manifest["build"]["version"] > 0:
 			print("Using custom build version...")
@@ -630,16 +594,16 @@ def main() -> None:
 
 		# SMC
 		smc_offset = len(new_img)
-		if isfile(join(BUILD_DIR, "SMC_dec.bin")):
+		if (BUILD_DIR / "SMC_dec.bin").is_file():
 			print(f"Encrypting and writing SMC_dec.bin @ 0x{smc_offset:04X}...")
 			nand_header.smc_offset = sizeof(nand_header)  # right after NAND header
-			smc_data = XeCryptSmcEncrypt(read_file(join(BUILD_DIR, "SMC_dec.bin")))
+			smc_data = XeCryptSmcEncrypt((BUILD_DIR / "SMC_dec.bin").read_bytes())
 			nand_header.smc_length = len(smc_data)
 			new_img += smc_data
-		elif isfile(join(BUILD_DIR, "SMC_enc.bin")):
+		elif (BUILD_DIR / "SMC_enc.bin").is_file():
 			print(f"Writing encrypted SMC_enc.bin @ 0x{smc_offset:04X}...")
 			nand_header.smc_offset = sizeof(nand_header)  # right after NAND header
-			smc_data = read_file(join(BUILD_DIR, "SMC_enc.bin"))
+			smc_data = (BUILD_DIR / "SMC_enc.bin").read_bytes()
 			nand_header.smc_length = len(smc_data)
 			new_img += smc_data
 		else:
@@ -647,22 +611,22 @@ def main() -> None:
 
 		# KeyVault (no idea if it even loads it)
 		kv_offset = len(new_img)
-		if isfile(join(BUILD_DIR, "KV_dec.bin")):
+		if (BUILD_DIR / "KV_dec.bin").is_file():
 			nand_header.kv_offset = kv_offset
-			if isfile(join(BUILD_DIR, "cpukey.txt")):
-				cpu_key = bytes.fromhex(read_file(join(BUILD_DIR, "cpukey.txt")))
-			elif isfile(join(BUILD_DIR, "cpukey.bin")):
-				cpu_key = read_file(join(BUILD_DIR, "cpukey.bin"))
+			if (BUILD_DIR / "cpukey.txt").is_file():
+				cpu_key = bytes.fromhex((BUILD_DIR / "cpukey.txt").read_text())
+			elif (BUILD_DIR / "cpukey.bin").is_file():
+				cpu_key = (BUILD_DIR / "cpukey.bin").read_bytes()
 			else:
 				raise Exception("cpukey.txt or cpukey.bin is required if you're building with a keyvault")
 			print(f"Encrypting and writing KV_dec.bin @ 0x{kv_offset:04X}...")
-			kv_data = XeCryptKeyVaultEncrypt(cpu_key, read_file(join(BUILD_DIR, "KV_dec.bin")))
+			kv_data = XeCryptKeyVaultEncrypt(cpu_key, (BUILD_DIR / "KV_dec.bin").read_bytes())
 			nand_header.kv_length = len(kv_data)
 			new_img += kv_data
-		elif isfile(join(BUILD_DIR, "KV_enc.bin")):
+		elif (BUILD_DIR / "KV_enc.bin").is_file():
 			print(f"Writing encrypted KV_enc.bin @ 0x{kv_offset:04X}...")
 			nand_header.kv_offset = kv_offset
-			kv_data = read_file(join(BUILD_DIR, "KV_enc.bin"))
+			kv_data = (BUILD_DIR / "KV_enc.bin").read_bytes()
 			nand_header.kv_length = len(kv_data)
 			new_img += kv_data
 		else:
@@ -672,7 +636,7 @@ def main() -> None:
 		sb_offset = len(new_img)
 		nand_header.cb_offset = sb_offset
 		print(f"Encrypting and writing SB @ 0x{sb_offset:04X}...")
-		nonce_sb = bytearray(read_file(sb_file))
+		nonce_sb = bytearray(sb_file.read_bytes())
 		pack_into("<16s", nonce_sb, 0x10, new_sb_nonce)
 		# if test_kit_compile:
 		# 	print("Compiling for test kit, SB signature will be broken!")
@@ -684,7 +648,7 @@ def main() -> None:
 
 		# write SC
 		print(f"Encrypting and writing SC @ 0x{sc_offset:04X}...")
-		nonce_sc = bytearray(read_file(sc_file))
+		nonce_sc = bytearray(sc_file.read_bytes())
 		pack_into("<16s", nonce_sc, 0x10, new_sc_nonce)
 		sc_enc = encrypt_bl(new_sc_key, nonce_sc)
 		new_img += sc_enc
@@ -708,7 +672,7 @@ def main() -> None:
 
 		# write SD
 		print(f"Signing, encrypting, and writing SD @ 0x{sd_offset:04X}...")
-		nonce_sd = bytearray(read_file(sd_file))
+		nonce_sd = bytearray(sd_file.read_bytes())
 		pack_into("<16s", nonce_sd, 0x10, new_sd_nonce)
 		pack_into("<20s", nonce_sd, 0x24C, se_hash)
 		sd_patched = nonce_sd
@@ -740,7 +704,7 @@ def main() -> None:
 
 		# write the output image
 		print("Writing output image...")
-		output_file.write_bytes(new_img)
+		args.output.write_bytes(new_img)
 		img_size = len(new_img)
 
 		print(f"Image size: {img_size}/{SHADOWBOOT_SIZE} (0x{img_size:04X}/0x{SHADOWBOOT_SIZE:04X}) bytes")
@@ -755,11 +719,9 @@ def main() -> None:
 		ShadowbootImage.parse(new_img)
 		print("Modified image verified!")
 
-		print(f"Final image location: \"{str(output_file.absolute())}\"")
+		print(f"Final image location: \"{str(args.output.absolute())}\"")
 	elif args.command == "extract":
-		op = Path(args.output)
-
-		img = ShadowbootImage.parse(read_file(args.input), not args.nochecks)
+		img = ShadowbootImage.parse(args.input.read_bytes(), not args.nochecks)
 
 		print(f"Console Type:       {img.console_type}")
 		print(f"SMC Version:        {img.smc_version}")
@@ -768,36 +730,36 @@ def main() -> None:
 
 		if args.all or args.smc:
 			# write_file(join(args.output, "SMC_dec.bin"), img.smc_data)
-			(op / "SMC_dec.bin").write_bytes(img.smc_data)
+			(args.output / "SMC_dec.bin").write_bytes(img.smc_data)
 		# if args.all or args.smc_config:
 		# 	write_file(join(args.output, "smc_config.bin"), img.smc_config_data)
 		if args.all or args.keyvault:
-			(op / "KV_dec.bin").write_bytes(img.kv_data)
+			(args.output / "KV_dec.bin").write_bytes(img.kv_data)
 		if args.all or args.sb:
-			(op / f"sb_{img.sb_build}.bin").write_bytes(img.sb_data)
+			(args.output / f"sb_{img.sb_build}.bin").write_bytes(img.sb_data)
 		if args.all or args.sc:
-			(op / f"sc_{img.sc_build}.bin").write_bytes(img.sc_data)
+			(args.output / f"sc_{img.sc_build}.bin").write_bytes(img.sc_data)
 		if args.all or args.sd:
-			(op / f"sd_{img.sd_build}.bin").write_bytes(img.sd_data)
+			(args.output / f"sd_{img.sd_build}.bin").write_bytes(img.sd_data)
 		if args.all or args.se:
-			(op / f"se_{img.se_build}.bin").write_bytes(img.se_data)
+			(args.output / f"se_{img.se_build}.bin").write_bytes(img.se_data)
 		if args.all or args.kernel:
-			(op / "kernel.exe").write_bytes(img.kernel_data)
+			(args.output / "kernel.exe").write_bytes(img.kernel_data)
 		if args.all or args.hypervisor:
-			(op / "hypervisor.bin").write_bytes(img.hypervisor_data)
+			(args.output / "hypervisor.bin").write_bytes(img.hypervisor_data)
 		if args.all or args.loader:
 			if len(img.patches) > 0:
-				(op / "patch_loader.bin").write_bytes(img.patches[0]["patch_loader"])
+				(args.output / "patch_loader.bin").write_bytes(img.patches[0]["patch_loader"])
 			else:
 				print("No patch loader found!")
 		if args.all or args.patches:
 			if len(img.patches) > 1:
 				for patch in img.patches[1:]:
-					(op / f"{patch['address']:04X}.bin").write_bytes(patch["patch_code"])
+					(args.output / f"{patch['address']:04X}.bin").write_bytes(patch["patch_code"])
 			else:
 				print("No patches found!")
 	elif args.command == "info":
-		img = ShadowbootImage.parse(read_file(args.input))
+		img = ShadowbootImage.parse(args.input.read_bytes(), not args.nochecks)
 
 		print(f"Console Type:   {img.console_type}")
 		print(f"SMC Version:    {img.smc_version}")
