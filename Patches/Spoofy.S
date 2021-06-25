@@ -112,8 +112,10 @@ PeekBytesLoop:
 	b		Done
 
 CheckFixAddr: # don't clobber r5 (source) or r6 (dest)
-	lis		r3, 1  # FakeFuseAddr
-	subi	r3, r3, 0x70
+    # 0x10000 - 0x40
+    lis		r3, 1  # FakeFuseAddr
+	subi	r3, r3, 0x40
+
 	lwz		r4, 0(r3)
 	cmplwi  cr6, r4, 0
 	beq		cr6, no_ff
@@ -126,11 +128,7 @@ CheckFixAddr: # don't clobber r5 (source) or r6 (dest)
 	blr
 	
 no_hvfuse:
-    # get patch offset
-    bla		HvpGetFlashBaseAddress
-	oris	r4, r3, nand_patch_offset@h
-	ori		r4, r4, nand_patch_offset@l # source
-	# 0x8000020000020600 - 0x8000020000020A00 first half of cpu key mirrors
+    # 0x8000020000020600 - 0x8000020000020A00 first half of cpu key mirrors
 	lis     r4, 0x8000
 	ori     r4, r4, 0x0200
 	rldicr  r4, r4, 32, 31

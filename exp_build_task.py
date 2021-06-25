@@ -8,13 +8,11 @@ PATCH_DIR = "Patches"
 
 def main() -> None:
 	print("Assembling HVPP...")
-	assemble_patch("Patches/HVPP.S", "Output/HVPP.bin", PATCH_DIR)
+	assemble_patch("Patches/Spoofy.S", "Output/Spoofy.bin", PATCH_DIR)
 	print("Signing HVPP...")
-	sign_exp("Output/HVPP.bin", "Output/HVPP_signed.bin")
-	# sign_exp("Output/HVPP.bin", "Output/HVPP_signed.bin", key_file="Keys/custom_prv.bin", exp_id=0x74657374)
+	sign_exp("Output/Spoofy.bin", "Output/Spoofy_signed.bin")
 	print("Outputting HVPP...")
-	lang_format("Output/HVPP_signed.bin", "Output/HVPP.h", Language.CPLUSPLUS, "ExpansionData")
-	# lang_format("Output/HVPP_signed.bin", "Output/HVPP.h", Language.CPLUSPLUS, "TestExpansionData")
+	lang_format("Output/Spoofy_signed.bin", "Output/Spoofy.h", Language.CPLUSPLUS, "ExpansionData")
 	print("Done!")
 
 if __name__ == "__main__":
