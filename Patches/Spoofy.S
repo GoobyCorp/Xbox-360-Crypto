@@ -1,9 +1,4 @@
-.set nand_patch_offset, 0x00100000
-.set HvpGetFlashBaseAddress, 0x0000068C
-.set HvpFlashCopy, 0x00000484 # XeCryptCopyQwVec(void* dest, void* src, int iter)
-.set HvpMemCpy, 0x0000A4E0 #  memcpy(void *destination, const void *source, int len)
-
-    .globl _start
+	.globl _start
 _start:
 0:
 	mflr	r12
@@ -36,7 +31,7 @@ _start:
 	cmpwi	r31, 0xB
 
 	# We should never get here...
-deadLoop: 
+deadLoop:
 	bge		deadLoop
 
 	# Its either peek or poke data so lets get our dest address
@@ -59,7 +54,7 @@ deadLoop:
 deadLoop2:
 	b		deadLoop2
 
-PeekSPR: 
+PeekSPR:
 	bl		PatchPeekSPR
 
 PatchPeekSPR:
@@ -80,28 +75,28 @@ ReadSPR:
 	mfspr	r3, 64 # SPR_HRMOR
 	b		Done
 
-PeekBYTE:					
-	bl		CheckFixAddr
+PeekBYTE:
+	bl		check_fix_address
 	lbz		r3, 0(r5)
 	b		Done
 
-PeekWORD:					
-	bl		CheckFixAddr
+PeekWORD:
+	bl		check_fix_address
 	lhz		r3, 0(r5)
 	b		Done
 
-PeekDWORD:					
-	bl		CheckFixAddr
+PeekDWORD:
+	bl		check_fix_address
 	lwz		r3, 0(r5)
 	b		Done
 
-PeekQWORD:					
-	bl		CheckFixAddr
+PeekQWORD:
+	bl		check_fix_address
 	ld		r3, 0(r5)
 	b		Done
 
 PeekBytes:
-	bl		CheckFixAddr
+	bl		check_fix_address
 PeekBytesLoop:
 	lbz		r31, 0(r5)
 	stb		r31, 0(r6)
@@ -111,62 +106,158 @@ PeekBytesLoop:
 	li		r3, 0
 	b		Done
 
-CheckFixAddr: # don't clobber r5 (source) or r6 (dest)
-    # 0x10000 - 0x40
-    lis		r3, 1  # FakeFuseAddr
-	subi	r3, r3, 0x40
-
-	lwz		r4, 0(r3)
-	cmplwi  cr6, r4, 0
-	beq		cr6, no_ff
-	cmpldi 	cr6, r5, 0x30  # r5 < 0x31
-	bgt		cr6, no_hvfuse
-	cmpldi	cr6, r5, 0x20  # r5 > 0x20
-	blt		cr6, no_ff
-	add		r5, r5, r3	#if reading between 0x20 and 0x30 add fake fuse address and do memcpy (not bulletproof, one could just read from 0x10 on or similar...)
-	subi	r5, r5, 0x20
-	blr
-	
-no_hvfuse:
-    # 0x8000020000020600 - 0x8000020000020A00 first half of cpu key mirrors
+# don't clobber r5 (source) or r6 (dest)
+check_fix_address:
+    # fuseline 0
+	# r4 = 0x8000020000020000
 	lis     r4, 0x8000
 	ori     r4, r4, 0x0200
 	rldicr  r4, r4, 32, 31
 	oris    r4, r4, 0x2
-	ori		r4, r4, 0x600	# 8000020000020600
-	cmpld	cr6, r5, r4
-	blt		cr6, no_ff		# address < 0x8000020000020600
-	addi	r4, r4, 0x400	# 8000020000020A00
-	cmpld	cr6, r5, r4
-	bge		cr6, sec_ff		# address >= 0x8000020000020A00
-	mr		r5, r3
-	li		r7, 0x8
-	b		no_ff
-	# 0x8000020000020A00 - 0x8000020000020E00 second half of cpu key mirrors
-sec_ff:	
-	addi	r4, r4, 0x400	# 8000020000020E00
-	cmpld	cr6, r5, r4
-	bge		cr6, no_ff		# address >= 0x8000020000020E00
-	mr		r5, r3
-	addi	r5, r5, 0x8
-	li		r7, 0x8
-no_ff:
+	cmpld   r5, r4
+	beq     fuseline_0
+
+	# fuseline 1
+	# r4 = 0x8000020000020200
+	addi    r4, r4, 0x200
+	cmpld   r5, r4
+	beq     fuseline_1
+
+	# fuseline 2
+	# r4 = 0x8000020000020400
+	addi    r4, r4, 0x200
+	cmpld   r5, r4
+	beq     fuseline_2
+
+	# fuseline 3
+	# r4 = 0x8000020000020600
+	addi    r4, r4, 0x200
+	cmpld   r5, r4
+	beq     fuseline_3
+
+	# fuseline 4
+	# r4 = 0x8000020000020800
+	addi    r4, r4, 0x200
+	cmpld   r5, r4
+	beq     fuseline_4
+
+	# fuseline 5
+	# r4 = 0x8000020000020A00
+	addi    r4, r4, 0x200
+	cmpld   r5, r4
+	beq     fuseline_5
+
+	# fuseline 6
+	# r4 = 0x8000020000020C00
+	addi    r4, r4, 0x200
+	cmpld   r5, r4
+	beq     fuseline_6
+
+	# fuseline 7
+	# r4 = 0x8000020000020E00
+	addi    r4, r4, 0x200
+	cmpld   r5, r4
+	beq     fuseline_7
+
+	# fuseline 8
+	# r4 = 0x8000020000021000
+	addi    r4, r4, 0x200
+	cmpld   r5, r4
+	beq     fuseline_8
+
+	# fuseline 9
+	# r4 = 0x8000020000021200
+	addi    r4, r4, 0x200
+	cmpld   r5, r4
+	beq     fuseline_9
+
+	# fuseline 10
+	# r4 = 0x8000020000021400
+	addi    r4, r4, 0x200
+	cmpld   r5, r4
+	beq     fuseline_10
+
+	# fuseline 11
+	# r4 = 0x8000020000021600
+	addi    r4, r4, 0x200
+	cmpld   r5, r4
+	beq     fuseline_11
+
+	blr
+fuseline_0:
+	lis     r5, 1
+	subi	r5, r5, 0x60
+	blr
+fuseline_1:
+	lis     r5, 1
+	subi	r5, r5, 0x60
+	addi    r5, r5, 0x8
+	blr
+fuseline_2:
+	lis     r5, 1
+	subi	r5, r5, 0x60
+	addi    r5, r5, 0x10
+	blr
+fuseline_3:
+	lis     r5, 1
+	subi	r5, r5, 0x60
+	addi    r5, r5, 0x18
+	blr
+fuseline_4:
+	lis     r5, 1
+	subi	r5, r5, 0x60
+	addi    r5, r5, 0x20
+	blr
+fuseline_5:
+	lis     r5, 1
+	subi	r5, r5, 0x60
+	addi    r5, r5, 0x28
+	blr
+fuseline_6:
+	lis     r5, 1
+	subi	r5, r5, 0x60
+	addi    r5, r5, 0x30
+	blr
+fuseline_7:
+	lis     r5, 1
+	subi	r5, r5, 0x60
+	addi    r5, r5, 0x38
+	blr
+fuseline_8:
+	lis     r5, 1
+	subi	r5, r5, 0x60
+	addi    r5, r5, 0x40
+	blr
+fuseline_9:
+	lis     r5, 1
+	subi	r5, r5, 0x60
+	addi    r5, r5, 0x48
+	blr
+fuseline_10:
+	lis     r5, 1
+	subi	r5, r5, 0x60
+	addi    r5, r5, 0x50
+	blr
+fuseline_11:
+	lis     r5, 1
+	subi	r5, r5, 0x60
+	addi    r5, r5, 0x58
 	blr
 
 PokeBYTE:
 	stb		r6, 0(r5)
 	b		PokeFlush
 
-PokeWORD:					
+PokeWORD:
 	sth		r6, 0(r5)
 	b		PokeFlush
 
-PokeDWORD:					
+PokeDWORD:
 	stw		r6, 0(r5)
 	b		PokeFlush
 
-PokeQWORD:					
-	std		r6, 0(r5)
+PokeQWORD:
+    std		r6, 0(r5)
 	b		PokeFlush
 
 PokeBytes:

@@ -8,12 +8,6 @@
 	.globl _start
 _start:
 
-# YUP!
-#    MAKEPATCH 0x00009E34
-# 0:
-#     ori r10, r11, 0xB00
-# 9:
-
 #============================================================================
 #   disable copying transform key from SoC
 #============================================================================
@@ -133,9 +127,9 @@ _start:
 #   Send Dot Character over Serial as Progress Indicator (ikari)
 #============================================================================
 	MAKEPATCH 0x000018C0
-	.set PrintDotDest, 0x000002D8
+	.set CopyFusesDest, 0x000002D8
 0:
-	bla      PrintDot  # patches
+	bla      CopyFuses  # patches
 9:
 
 #============================================================================
@@ -146,19 +140,19 @@ _start:
 	.set HvpGetFlashBaseAddress, 0x0000068C
 	.set HvpFlashCopy, 0x00000484 # XeCryptCopyQwVec(void* dest, void* src, int iter)
 	.set HvpMemCpy, 0x0000A4E0 #  memcpy(void *destination, const void *source, int len)
-	.set PrintDot, PatchAddr
+	.set CopyFuses, PatchAddr
 	.set FixFusesAddr, (PatchAddr + (1f - 0f))
-	.set PrintChar, (PatchAddr + (2f - 0f))
 
 #--------------------------------------------------
-# PrintDot
+# CopyFuses
 #--------------------------------------------------
 0:
 	mflr	r8
 	bla		HvpGetFlashBaseAddress
 	oris	r4, r3, nand_patch_offset@h
 	ori		r4, r4, nand_patch_offset@l # source
-	
+
+    # copy fuses from nand_patch_offset to 0x10000 - 0x60 in HV
 	lis		r3, 1
 	subi	r3, r3, 0x60
 	# 0x60 bytes, 0xC 64bit vals to copy
@@ -171,33 +165,13 @@ _start:
 	andc	r3, r3, r4
 	sth     r3, BldrFlags(0)
 
-	li      r3, '!'
-	bla     PrintChar
-	li      r3, '\n'
-	bla     PrintChar
-	mtlr	r8
-	ba      PrintDotDest
+	ba      CopyFusesDest
 #--------------------------------------------------
 # FixFusesAddr
 #--------------------------------------------------
 1:
 	lis		r3, 1
 	subi	r3, r3, 0x60
-	blr
-#--------------------------------------------------
-# PrintChar
-#--------------------------------------------------
-2:
-	lis     r4, 0x8000
-	ori     r4, r4, 0x0200
-	rldicr  r4, r4, 32, 31
-	oris    r4, r4, 0xea00
-	slwi    r3, r3, 24
-	stw     r3, 0x1014(r4)
-charwait:
-	lwz     r3, 0x1018(r4)
-	rlwinm. r3, r3, 0, 6, 6
-	beq     charwait
 	blr
 9:
 

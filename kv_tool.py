@@ -4,7 +4,7 @@ from enum import IntEnum
 from pathlib import Path
 from struct import pack_into
 
-from XeCrypt import XeCryptKeyVaultEncrypt
+from XeCrypt import XeCryptCpuKeyGen, XeCryptKeyVaultEncrypt
 
 class ConsoleType(IntEnum):
 	RETAIL_PHAT = 0
@@ -13,7 +13,7 @@ class ConsoleType(IntEnum):
 	DEVKIT      = 3
 
 def main() -> None:
-	cpu_key = bytes.fromhex("A55F6604990DD4736DE6A0E09FC576F1")
+	cpu_key = XeCryptCpuKeyGen()
 	dvd_key = bytes.fromhex("C7F720142AB22847757398FEB4AECDD1")
 	console_type = ConsoleType.DEVKIT
 
