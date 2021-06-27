@@ -108,7 +108,7 @@ PeekBytesLoop:
 
 # don't clobber r5 (source) or r6 (dest)
 check_fix_address:
-    # fuseline 0
+	# fuseline 0
 	# r4 = 0x8000020000020000
 	lis     r4, 0x8000
 	ori     r4, r4, 0x0200
@@ -257,7 +257,7 @@ PokeDWORD:
 	b       PokeFlush
 
 PokeQWORD:
-    std     r6, 0(r5)
+	std     r6, 0(r5)
 	b       PokeFlush
 
 PokeBytes:
