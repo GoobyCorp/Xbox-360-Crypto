@@ -46,8 +46,6 @@ def add_percent_to_registers(code: str) -> str:
 def main() -> None:
 	ks = Ks(KS_ARCH_PPC, KS_MODE_BIG_ENDIAN + KS_MODE_PPC64)
 
-	ks.asm(".include \"macros.S\"")
-
 	data = Path("Patches/Spoofy.S").read_text()
 	lines = data.splitlines()
 	# remove empty lines, comment lines, and macro lines
