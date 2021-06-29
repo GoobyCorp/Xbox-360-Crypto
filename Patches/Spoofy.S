@@ -1,6 +1,5 @@
 	.globl _start
 _start:
-0:
 	mflr    r12
 	std     r31, -0x10(r1)
 	std     r12, -8(r1)
@@ -8,25 +7,25 @@ _start:
 	mr      r31, r4
 
 	# Check to see if its Peek
-	cmpwi   r31, 0
+	cmpwi   r31, 0x0
 	beq     PeekBYTE
-	cmpwi   r31, 1
+	cmpwi   r31, 0x1
 	beq     PeekWORD
-	cmpwi   r31, 2
+	cmpwi   r31, 0x2
 	beq     PeekDWORD
-	cmpwi   r31, 3
+	cmpwi   r31, 0x3
 	beq     PeekQWORD
-	cmpwi   r31, 10
+	cmpwi   r31, 0xA
 	beq     PeekSPR
 	
 	# Check to see if its Poke
-	cmpwi   r31, 5
+	cmpwi   r31, 0x5
 	beq     PokeBYTE
-	cmpwi   r31, 6
+	cmpwi   r31, 0x6
 	beq     PokeWORD
-	cmpwi   r31, 7
+	cmpwi   r31, 0x7
 	beq     PokeDWORD
-	cmpwi   r31, 8
+	cmpwi   r31, 0x8
 	beq     PokeQWORD
 	cmpwi   r31, 0xB
 
@@ -38,16 +37,16 @@ deadLoop:
 	# Get function "HvpPhysicalToReal"
 	lwz     r3, 0x4c(0)
 	add     r3, r2, r3
-	lwz     r3, 8(r3)
+	lwz     r3, 0x8(r3)
 	mtctr   r3
 	mr      r3, r6
-	li      r4, 1
+	li      r4, 0x1
 	bctrl
 	mr      r6, r3
 	mtctr   r7
-	cmpwi   r31, 4
+	cmpwi   r31, 0x4
 	beq     PeekBytes
-	cmpwi   r31, 9
+	cmpwi   r31, 0x9
 	beq     PokeBytes
 
 	# We should never get here...
@@ -60,9 +59,9 @@ PeekSPR:
 PatchPeekSPR:
 	mr      r6, r5
 	lis     r4, 0x7C60 # 0x7C6002A6
-	insrwi  r6, r5, 5,17
+	insrwi  r6, r5, 0x5, 0x11
 	ori     r4, r4, 0x2A6 # 0x7C6002A6
-	rlwimi  r4, r6, 6,11,20
+	rlwimi  r4, r6, 0x6, 0xB, 0x14
 	mflr    r3
 	addi    r3, r3, (ReadSPR - PatchPeekSPR) 
 	stw     r4, 0(r3)
@@ -72,7 +71,7 @@ PatchPeekSPR:
 	isync
 
 ReadSPR:
-	mfspr   r3, 64 # SPR_HRMOR
+	mfspr   r3, 0x40 # SPR_HRMOR
 	b       Done
 
 PeekBYTE:
@@ -112,7 +111,7 @@ check_fix_address:
 	# r4 = 0x8000020000020000
 	lis     r4, 0x8000
 	ori     r4, r4, 0x0200
-	rldicr  r4, r4, 32, 31
+	rldicr  r4, r4, 0x20, 0x1F
 	oris    r4, r4, 0x2
 	cmpld   r5, r4
 	beq     fuseline_0
@@ -263,7 +262,7 @@ PokeQWORD:
 PokeBytes:
 	lbz     r31, 0(r6)
 	stb     r31, 0(r5)
-	dcbst    r0, r5
+	dcbst   r0, r5
 	icbi    r0, r5
 	sync
 	isync
@@ -284,7 +283,6 @@ Done:
 	ld      r12, -8(r1)
 	mtlr    r12
 	blr
-9:
 #============================================================================
 	.end
 #============================================================================
