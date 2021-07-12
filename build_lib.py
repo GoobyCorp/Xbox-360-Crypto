@@ -71,7 +71,7 @@ def verify_sd_4bl(key: Union[PY_XECRYPT_RSA_KEY, bytes, bytearray], salt: Union[
 def encrypt_bl(key: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bytearray:
 	with BytesIO(data) as bio:
 		bio.seek(0x20)  # skip header and nonce
-		bl_data_enc = XeCryptRc4Ecb(key, bio.read())  # read all of the remaining data and encrypt it
+		bl_data_enc = XeCryptRc4.new(key).encrypt(bio.read())  # read all of the remaining data and encrypt it
 		bio.seek(0x20)  # write the encrypted data back
 		bio.write(bl_data_enc)
 		data = bio.getvalue()

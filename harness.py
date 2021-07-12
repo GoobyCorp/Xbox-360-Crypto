@@ -94,8 +94,8 @@ def do_rc4_test() -> bool:
 	(rc4_key, rc4_data) = unpack_from(f"<{0x10}s {0x10}s", TEST_DATA, 0)
 
 	print("starting RC4 tests...")
-	XeCryptRc4EcbKey(rc4_key)
-	rc4_data = XeCryptRc4(rc4_data)
+	cipher = XeCryptRc4.new(rc4_key)
+	rc4_data = cipher.decrypt(rc4_data)
 	print("    RC4 first round - ")
 	if rc4_data == rc4_1_round:
 		print("OK")
@@ -104,7 +104,7 @@ def do_rc4_test() -> bool:
 		rc4_pass = False
 
 	for cnt in range(99):
-		rc4_data = XeCryptRc4(rc4_data)
+		rc4_data = cipher.decrypt(rc4_data)
 	print("    RC4 hundred round - ")
 	if rc4_data == rc4_100_round:
 		print("OK")
@@ -122,7 +122,8 @@ def do_aes_test() -> bool:
 	(aes_key, aes_data) = unpack_from(f"<{XECRYPT_AES_KEY_SIZE}s {XECRYPT_AES_BLOCK_SIZE}s", TEST_DATA, 0)
 
 	print("starting AES tests...")
-	aes_data = XeCryptAesEcb(aes_key, aes_data, False)
+	cipher = XeCryptAes.new(aes_key)
+	aes_data = cipher.decrypt(aes_data)
 	print("    AES-ECB first round - ")
 	if aes_data == aes_ecb_1_round:
 		print("OK")
@@ -131,7 +132,7 @@ def do_aes_test() -> bool:
 		aes_pass = False
 
 	for cnt in range(99):
-		aes_data = XeCryptAesEcb(aes_key, aes_data, False)
+		aes_data = cipher.decrypt(aes_data)
 	print("    AES-ECB hundred round - ")
 	if aes_data == aes_ecb_100_round:
 		print("OK")
@@ -141,8 +142,8 @@ def do_aes_test() -> bool:
 
 	(aes_key, aes_data, aes_feed) = unpack_from(f"<{XECRYPT_AES_KEY_SIZE}s {XECRYPT_AES_BLOCK_SIZE}s {XECRYPT_AES_FEED_SIZE}s", TEST_DATA, 0)
 
-	XeCryptAesCbcKey(aes_key, aes_feed)
-	aes_data = XeCryptAes(aes_data, False)
+	cipher = XeCryptAes.new(aes_key, XeCryptAes.MODE_CBC, aes_feed)
+	aes_data = cipher.decrypt(aes_data)
 	print("    AES-CBC first round - ")
 	if aes_data == aes_cbc_1_round:
 		print("OK")
@@ -150,9 +151,9 @@ def do_aes_test() -> bool:
 		print("FAILED")
 		aes_pass = False
 
-	XeCryptAesCbcKey(aes_key, aes_cbc_1_round_feed)
+	cipher = XeCryptAes.new(aes_key, XeCryptAes.MODE_CBC, aes_cbc_1_round_feed)
 	for cnt in range(99):
-		aes_data = XeCryptAes(aes_data, False)
+		aes_data = cipher.decrypt(aes_data)
 	print("    AES-CBC hundred round - ")
 	if aes_data == aes_cbc_100_round:
 		print("OK")
@@ -169,7 +170,7 @@ def do_des_test() -> bool:
 
 	(des_key, des_data) = unpack_from(f"<{XECRYPT_DES_KEY_SIZE}s {XECRYPT_DES_BLOCK_SIZE}s", TEST_DATA, 0)
 	print("starting DES tests...")
-	des_data = XeCryptDesEcb(des_key, des_data, False)
+	des_data = XeCryptDes.new(des_key).decrypt(des_data)
 	print("    DES-ECB first round - ")
 	if des_data == des_1_round:
 		print("OK")
@@ -177,8 +178,9 @@ def do_des_test() -> bool:
 		print("FAILED")
 		des_pass = False
 
+	cipher = XeCryptDes.new(des_key)
 	for cnt in range(99):
-		des_data = XeCryptDesEcb(des_key, des_data, False)
+		des_data = cipher.decrypt(des_data)
 	print("    DES-ECB hundred round - ")
 	if des_data == des_100_round:
 		print("OK")
@@ -188,17 +190,17 @@ def do_des_test() -> bool:
 
 	(des_key, des_feed, des_data) = unpack_from(f"<{XECRYPT_DES_KEY_SIZE}s {XECRYPT_DES_BLOCK_SIZE}s {XECRYPT_DES_BLOCK_SIZE * 8}s", TEST_DATA, 0)
 
-	# des_data = XeCryptDesCbc(des_key, des_feed, des_data, False)
+	# des_data = XeCryptDes.new(des_key, XeCryptDes.MODE_CBC, des_feed).decrypt(des_data)
 	# print("    DES-CBC - ")
 	# if des_data == des_cbc_round:
-	#	print("OK")
-	#else:
+	# 	print("OK")
+	# else:
 	#	print("FAILED")
 	#	des_pass = False
 
 	(des_key, des_data) = unpack_from(f"<{XECRYPT_DES3_KEY_SIZE}s {XECRYPT_DES3_BLOCK_SIZE}s", TEST_DATA, 0)
 
-	des_data = XeCryptDes3Ecb(des_key, des_data, False)
+	des_data = XeCryptDes3.new(des_key).decrypt(des_data)
 	print("    DES3-ECB first round - ")
 	if des_data == des3_1_round:
 		print("OK")
@@ -206,8 +208,9 @@ def do_des_test() -> bool:
 		print("FAILED")
 		des_pass = False
 
+	cipher = XeCryptDes3.new(des_key)
 	for cnt in range(99):
-		des_data = XeCryptDes3Ecb(des_key, des_data, False)
+		des_data = cipher.decrypt(des_data)
 	print("    DES3-ECB hundred round - ")
 	if des_data == des3_100_round:
 		print("OK")

@@ -80,7 +80,7 @@ def sign_exp(in_file: str, out_file: str = None, key_file: str = "Keys/HVX_prv.b
 		if encrypt:  # encrypt everything after the signature
 			exp_iv = urandom(0x10)
 			pack_into("16s", exp_final, 0x20, exp_iv)
-			enc_exp = XeCryptAesCbc(XECRYPT_1BL_KEY, exp_iv, exp_final[0x130:])
+			enc_exp = XeCryptAes.new(XECRYPT_1BL_KEY, XeCryptAes.MODE_CBC, exp_iv).encrypt(exp_final[0x130:])
 			pack_into(f"<{len(enc_exp)}s", exp_final, 0x130, enc_exp)
 
 	# write it to a file

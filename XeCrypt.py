@@ -27,12 +27,6 @@ from Crypto.Hash import MD5, SHA1, HMAC
 from Crypto.Cipher import ARC4, DES, DES3, AES
 
 # globals
-# ciphers
-RC4_CIPHER: ARC4  = None
-AES_CIPHER: AES   = None
-DES_CIPHER: DES   = None
-DES3_CIPHER: DES3 = None
-
 # constants
 XECRYPT_SMC_KEY  = bytes.fromhex("42754E79")
 XECRYPT_1BL_KEY  = bytes.fromhex("DD88AD0C9ED669E7B56794FB68563EFA")
@@ -435,111 +429,109 @@ def XeCryptHmacSha(key: Union[bytes, bytearray], *args: Union[bytes, bytearray])
 	return hasher.digest()
 
 # RC4
-def XeCryptRc4EcbKey(key: Union[bytes, bytearray]) -> None:
-	global RC4_CIPHER
+class XeCryptRc4:
+	# only works in ECB mode!
 
-	RC4_CIPHER = ARC4.new(key)
+	def __init__(self, key: Union[bytes, bytearray]):
+		self.reset()
+		self._cipher = ARC4.new(key)
 
-def XeCryptRc4(data: Union[bytes, bytearray]) -> bytes:
-	global RC4_CIPHER
+	def reset(self) -> None:
+		self._cipher = None
 
-	assert RC4_CIPHER is not None, "AES cipher isn't initialized, use XeCryptRc4Key"
+	@staticmethod
+	def new(key: Union[bytes, bytearray]):
+		return XeCryptRc4(key)
 
-	return RC4_CIPHER.encrypt(data)
+	def encrypt(self, data: Union[bytes, bytearray]) -> bytes:
+		return self._cipher.encrypt(data)
 
-def XeCryptRc4Ecb(key: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bytes:
-	XeCryptRc4EcbKey(key)
-	return XeCryptRc4(data)
+	def decrypt(self, data: Union[bytes, bytearray]) -> bytes:
+		return self._cipher.decrypt(data)
 
 # AES
-def XeCryptAesEcbKey(key: (bytes, bytearray)) -> None:
-	global AES_CIPHER
+class XeCryptAes:
+	MODE_ECB = 1
+	MODE_CBC = 2
 
-	AES_CIPHER = AES.new(key, AES.MODE_ECB)
+	def __init__(self, key: Union[bytes, bytearray], mode: int = MODE_ECB, iv: Union[bytes, bytearray] = None):
+		self.reset()
+		if mode == self.MODE_ECB:
+			self._cipher = AES.new(key, mode)
+		elif mode == self.MODE_CBC:
+			assert iv is not None, "IV is required for the CBC cipher mode"
+			self._cipher = AES.new(key, mode, iv)
+		else:
+			raise Exception("Invalid cipher mode entered")
 
-def XeCryptAesCbcKey(key: Union[bytes, bytearray], iv: Union[bytes, bytearray]) -> None:
-	global AES_CIPHER
+	def reset(self) -> None:
+		self._cipher = None
 
-	AES_CIPHER = AES.new(key, AES.MODE_CBC, iv)
+	@staticmethod
+	def new(key: Union[bytes, bytearray], mode: int = MODE_ECB, iv: Union[bytes, bytearray] = None):
+		return XeCryptAes(key, mode, iv)
 
-def XeCryptAes(data: Union[bytes, bytearray], encrypt: bool = True) -> bytes:
-	global AES_CIPHER
+	def encrypt(self, data: Union[bytes, bytearray]) -> bytes:
+		return self._cipher.encrypt(data)
 
-	assert AES_CIPHER is not None, "AES cipher isn't initialized, use XeCryptAesEcbKey or XeCryptAesCbcKey"
-
-	if encrypt:
-		data = AES_CIPHER.encrypt(data)
-	else:
-		data = AES_CIPHER.decrypt(data)
-	return data
-
-def XeCryptAesEcb(key: Union[bytes, bytearray], data: Union[bytes, bytearray], encrypt: bool = True) -> bytes:
-	XeCryptAesEcbKey(key)
-	return XeCryptAes(data, encrypt)
-
-def XeCryptAesCbc(key: Union[bytes, bytearray], iv: Union[bytes, bytearray], data: Union[bytes, bytearray], encrypt: bool = True) -> bytes:
-	XeCryptAesCbcKey(key, iv)
-	return XeCryptAes(data, encrypt)
+	def decrypt(self, data: Union[bytes, bytearray]) -> bytes:
+		return self._cipher.decrypt(data)
 
 # DES
-def XeCryptDesEcbKey(key: (bytes, bytearray)) -> None:
-	global DES_CIPHER
+class XeCryptDes:
+	MODE_ECB = 1
+	MODE_CBC = 2
 
-	DES_CIPHER = DES.new(key, DES.MODE_ECB)
+	def __init__(self, key: Union[bytes, bytearray], mode: int = MODE_ECB, iv: Union[bytes, bytearray] = None):
+		self.reset()
+		if mode == self.MODE_ECB:
+			self._cipher = DES.new(key, mode)
+		elif mode == self.MODE_CBC:
+			assert iv is not None, "IV is required for the CBC cipher mode"
+			self._cipher = DES.new(key, mode, iv)
+		else:
+			raise Exception("Invalid cipher mode entered")
 
-def XeCryptDesCbcKey(key: Union[bytes, bytearray], iv: Union[bytes, bytearray]) -> None:
-	global DES_CIPHER
+	def reset(self) -> None:
+		self._cipher = None
 
-	DES_CIPHER = DES.new(key, DES.MODE_CBC, iv)
+	@staticmethod
+	def new(key: Union[bytes, bytearray], mode: int = MODE_ECB, iv: Union[bytes, bytearray] = None):
+		return XeCryptDes(key, mode, iv)
 
-def XeCryptDes(data: Union[bytes, bytearray], encrypt: bool = True) -> bytes:
-	global DES_CIPHER
+	def encrypt(self, data: Union[bytes, bytearray]) -> bytes:
+		return self._cipher.encrypt(data)
 
-	assert DES_CIPHER is not None, "DES cipher isn't initialized, use XeCryptDesEcbKey or XeCryptDesCbcKey"
+	def decrypt(self, data: Union[bytes, bytearray]) -> bytes:
+		return self._cipher.decrypt(data)
 
-	if encrypt:
-		data = DES_CIPHER.encrypt(data)
-	else:
-		data = DES_CIPHER.decrypt(data)
-	return data
+# DES 3
+class XeCryptDes3:
+	MODE_ECB = 1
+	MODE_CBC = 2
 
-def XeCryptDesEcb(key: Union[bytes, bytearray], data: Union[bytes, bytearray], encrypt: bool = True) -> bytes:
-	XeCryptDesEcbKey(key)
-	return XeCryptDes(data, encrypt)
+	def __init__(self, key: Union[bytes, bytearray], mode: int = MODE_ECB, iv: Union[bytes, bytearray] = None):
+		self.reset()
+		if mode == self.MODE_ECB:
+			self._cipher = DES3.new(key, mode)
+		elif mode == self.MODE_CBC:
+			assert iv is not None, "IV is required for the CBC cipher mode"
+			self._cipher = DES3.new(key, mode, iv)
+		else:
+			raise Exception("Invalid cipher mode entered")
 
-def XeCryptDesCbc(key: Union[bytes, bytearray], iv: Union[bytes, bytearray], data: Union[bytes, bytearray], encrypt: bool = True) -> bytes:
-	XeCryptDesCbcKey(key, iv)
-	return XeCryptDes(data, encrypt)
+	def reset(self) -> None:
+		self._cipher = None
 
-# DES3
-def XeCryptDes3EcbKey(key: (bytes, bytearray)) -> None:
-	global DES3_CIPHER
+	@staticmethod
+	def new(key: Union[bytes, bytearray], mode: int = MODE_ECB, iv: Union[bytes, bytearray] = None):
+		return XeCryptDes3(key, mode, iv)
 
-	DES3_CIPHER = DES3.new(key, DES3.MODE_ECB)
+	def encrypt(self, data: Union[bytes, bytearray]) -> bytes:
+		return self._cipher.encrypt(data)
 
-def XeCryptDes3CbcKey(key: (bytes, bytearray), iv: (bytes, bytearray)) -> None:
-	global DES3_CIPHER
-
-	DES3_CIPHER = DES3.new(key, DES3.MODE_CBC, iv)
-
-def XeCryptDes3(data: Union[bytes, bytearray], encrypt: bool = True) -> bytes:
-	global DES3_CIPHER
-
-	assert DES3_CIPHER is not None, "DES3 cipher isn't initialized, use XeCryptDes3EcbKey or XeCryptDes3CbcKey"
-
-	if encrypt:
-		data = DES3_CIPHER.encrypt(data)
-	else:
-		data = DES3_CIPHER.decrypt(data)
-	return data
-
-def XeCryptDes3Ecb(key: Union[bytes, bytearray], data: Union[bytes, bytearray], encrypt: bool = True) -> bytes:
-	XeCryptDes3EcbKey(key)
-	return XeCryptDes3(data, encrypt)
-
-def XeCryptDes3Cbc(key: Union[bytes, bytearray], iv: Union[bytes, bytearray], data: Union[bytes, bytearray], encrypt: bool = True) -> bytes:
-	XeCryptDes3CbcKey(key, iv)
-	return XeCryptDes3(data, encrypt)
+	def decrypt(self, data: Union[bytes, bytearray]) -> bytes:
+		return self._cipher.decrypt(data)
 
 # conversions
 def XeCryptRsaBinToStruct(data: Union[bytes, bytearray]) -> Union[XECRYPT_RSAPUB_1024, XECRYPT_RSAPUB_2048, XECRYPT_RSAPUB_4096, XECRYPT_RSAPRV_1024, XECRYPT_RSAPRV_2048, XECRYPT_RSAPRV_4096]:
@@ -777,7 +769,7 @@ def XeCryptBnQwBeSigFormat(sig: Union[bytes, bytearray], b_hash: Union[bytes, by
 	ab_hash = SHA1.new((b"\x00" * 8) + b_hash + salt).digest()
 	pack_into("<B", sig, 0xE0, 1)
 	pack_into("<10s", sig, 0xE1, salt)
-	pack_into("<235s", sig, 0, XeCryptRc4Ecb(ab_hash, sig[:0xEB]))
+	pack_into("<235s", sig, 0, XeCryptRc4.new(ab_hash).encrypt(sig[:0xEB]))
 	pack_into("<20s", sig, 0xEB, ab_hash)
 	pack_into("<B", sig, 0xFF, 0xBC)
 	sig[0] &= 0x7F
@@ -818,7 +810,7 @@ def XeCryptBnQwBeSigVerify(sig: Union[bytes, bytearray], b_hash: Union[bytes, by
 	if SHA1.new((b"\x00" * 8) + b_hash + salt).digest() != sig_dec[0xEB:-1]:
 		return False
 
-	sig_dec = XeCryptRc4Ecb(sig_dec[0xEB:-1], sig_dec[:0xEB])
+	sig_dec = XeCryptRc4.new(sig_dec[0xEB:-1]).decrypt(sig_dec[:0xEB])
 
 	if sig_dec[0xE0] != 1:
 		return False
@@ -982,8 +974,7 @@ def XeCryptKeyVaultDecrypt(cpu_key: Union[bytes, bytearray], data: Union[bytes, 
 	assert XeCryptCpuKeyValid(cpu_key), "Invalid CPU key"
 	version = bytes([0x7, 0x12])
 	kv_hash = XeCryptHmacSha(cpu_key, data[:0x10])[:0x10]
-	XeCryptRc4EcbKey(kv_hash)
-	data = data[:0x10] + XeCryptRc4(data[0x10:])
+	data = data[:0x10] + XeCryptRc4.new(kv_hash).decrypt(data[0x10:])
 	kv_hash = XeCryptHmacSha(cpu_key, data[0x10:], version)[:0x10]
 	assert data[:0x10] == kv_hash, "Invalid KV digest"
 	return data
@@ -1000,8 +991,7 @@ def XeCryptKeyVaultEncrypt(cpu_key: Union[bytes, bytearray], data: Union[bytes, 
 	pack_into("8s", data, 0x10, XeCryptRandom(8))
 	pack_into("16s", data, 0, XeCryptHmacSha(cpu_key, data[0x10:], version)[:0x10])
 	rc4_key = XeCryptHmacSha(cpu_key, data[:0x10])[:0x10]
-	XeCryptRc4EcbKey(rc4_key)
-	return bytes(data[:0x10]) + XeCryptRc4(data[0x10:])
+	return bytes(data[:0x10]) + XeCryptRc4.new(rc4_key).encrypt(data[0x10:])
 
 def XeCryptKeyVaultVerify(cpu_key: Union[bytes, bytearray], data: Union[bytes, bytearray], pub_key: Union[bytes, bytearray]) -> bool:
 	assert XeCryptCpuKeyValid(cpu_key), "Invalid CPU key"
@@ -1314,11 +1304,6 @@ __all__ = [
 	"BLMagic",
 
 	# functions
-	"XeCryptAes",
-	"XeCryptAesCbc",
-	"XeCryptAesCbcKey",
-	"XeCryptAesEcb",
-	"XeCryptAesEcbKey",
 	"XeCryptBnDwLePkcs1Format",
 	"XeCryptBnDwLePkcs1Verify",
 	"XeCryptBnQwBeSigCreate",
@@ -1332,16 +1317,6 @@ __all__ = [
 	"XeCryptBnQwNeRsaPubCrypt",
 	"XeCryptCpuKeyGen",
 	"XeCryptCpuKeyValid",
-	"XeCryptDes",
-	"XeCryptDes3",
-	"XeCryptDes3Cbc",
-	"XeCryptDes3CbcKey",
-	"XeCryptDes3Ecb",
-	"XeCryptDes3EcbKey",
-	"XeCryptDesCbc",
-	"XeCryptDesCbcKey",
-	"XeCryptDesEcb",
-	"XeCryptDesEcbKey",
 	"XeCryptHammingWeight",
 	"XeCryptHmacMd5",
 	"XeCryptHmacSha",
@@ -1353,8 +1328,9 @@ __all__ = [
 	"XeCryptPageEccEncode",
 	"XeCryptRandom",
 	"XeCryptRc4",
-	"XeCryptRc4Ecb",
-	"XeCryptRc4EcbKey",
+	"XeCryptAes",
+	"XeCryptDes",
+	"XeCryptDes3",
 	"XeCryptRotSum",
 	"XeCryptRotSumSha",
 	"XeCryptSha",

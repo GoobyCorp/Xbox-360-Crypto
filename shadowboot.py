@@ -260,7 +260,7 @@ class ShadowbootImage:
 		# read out the encrypted bytes after the header
 		sb_2bl_enc = self._stream.read(self.img_map["SB"]["size"] - 0x20)
 		# decrypt the CB/SB/2BL
-		sb_2bl_dec = XeCryptRc4Ecb(self.img_map["SB"]["key"], sb_2bl_enc)
+		sb_2bl_dec = XeCryptRc4.new(self.img_map["SB"]["key"]).decrypt(sb_2bl_enc)
 		# prepend the header to the decrypted data
 		self.sb_data = bytes(self.img_map["SB"]["header"]) + sb_2bl_dec # + (b"\x00" * (self.img_map["SB"]["pad_size"] - self.img_map["SB"]["size"]))
 
@@ -272,7 +272,7 @@ class ShadowbootImage:
 		# read out the encrypted bytes after the header
 		sc_3bl_enc = self._stream.read(self.img_map["SC"]["size"] - 0x20)
 		# decrypt the CC/SC/3BL
-		sc_3bl_dec = XeCryptRc4Ecb(self.img_map["SC"]["key"], sc_3bl_enc)
+		sc_3bl_dec = XeCryptRc4.new(self.img_map["SC"]["key"]).decrypt(sc_3bl_enc)
 		# prepend the header to the decrypted data
 		self.sc_data = bytes(self.img_map["SC"]["header"]) + sc_3bl_dec # + (b"\x00" * (self.img_map["SC"]["pad_size"] - self.img_map["SC"]["size"]))
 
@@ -284,7 +284,7 @@ class ShadowbootImage:
 		# read out the encrypted bytes after the header
 		sd_4bl_enc = self._stream.read(self.img_map["SD"]["size"] - 0x20)
 		# decrypt the CD/SD/4BL
-		sd_4bl_dec = XeCryptRc4Ecb(self.img_map["SD"]["key"], sd_4bl_enc)
+		sd_4bl_dec = XeCryptRc4.new(self.img_map["SD"]["key"]).decrypt(sd_4bl_enc)
 		# prepend the header to the decrypted data
 		self.sd_data = bytes(self.img_map["SD"]["header"]) + sd_4bl_dec # + (b"\x00" * (self.img_map["SD"]["pad_size"] - self.img_map["SD"]["size"]))
 
@@ -296,7 +296,7 @@ class ShadowbootImage:
 		# read out the encrypted bytes after the header
 		se_5bl_enc = self._stream.read(self.img_map["SE"]["size"] - 0x20)
 		# decrypt the CE/SE/5BL
-		se_5bl_dec = XeCryptRc4Ecb(self.img_map["SE"]["key"], se_5bl_enc)
+		se_5bl_dec = XeCryptRc4.new(self.img_map["SE"]["key"]).decrypt(se_5bl_enc)
 		# prepend the header to the decrypted data
 		self.se_data = bytes(self.img_map["SE"]["header"]) + se_5bl_dec # + (b"\x00" * (self.img_map["SE"]["pad_size"] - self.img_map["SE"]["size"]))
 
