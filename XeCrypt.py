@@ -16,8 +16,8 @@ from os import urandom
 from array import array
 from enum import IntEnum
 from pathlib import Path
-from typing import Union, Tuple
 from io import BytesIO, StringIO
+from typing import Union, Tuple, Optional
 from struct import pack, unpack, pack_into, unpack_from, calcsize
 from ctypes import BigEndianStructure, sizeof, c_ubyte, c_uint16, c_uint32, c_uint64
 
@@ -328,7 +328,7 @@ def read_file(filename: str, text: bool = False) -> Union[bytes, str]:
 	else:
 		return p.read_bytes()
 
-def write_file(filename: str, data: (str, bytes, bytearray)) -> None:
+def write_file(filename: str, data: Union[str, bytes, bytearray]) -> None:
 	p = Path(filename)
 	if type(data) == str:
 		p.write_text(data)
@@ -449,12 +449,68 @@ class XeCryptRc4:
 	def decrypt(self, data: Union[bytes, bytearray]) -> bytes:
 		return self._cipher.decrypt(data)
 
+# DES
+class XeCryptDes:
+	MODE_ECB = 1
+	MODE_CBC = 2
+
+	def __init__(self, key: Union[bytes, bytearray], mode: Optional[int] = MODE_ECB, iv: Optional[Union[bytes, bytearray]] = None):
+		self.reset()
+		if mode == self.MODE_ECB:
+			self._cipher = DES.new(key, mode)
+		elif mode == self.MODE_CBC:
+			assert iv is not None, "IV is required for the CBC cipher mode"
+			self._cipher = DES.new(key, mode, iv)
+		else:
+			raise Exception("Invalid cipher mode entered")
+
+	def reset(self) -> None:
+		self._cipher = None
+
+	@staticmethod
+	def new(key: Union[bytes, bytearray], mode: Optional[int] = MODE_ECB, iv: Optional[Union[bytes, bytearray]] = None):
+		return XeCryptDes(key, mode, iv)
+
+	def encrypt(self, data: Union[bytes, bytearray]) -> bytes:
+		return self._cipher.encrypt(data)
+
+	def decrypt(self, data: Union[bytes, bytearray]) -> bytes:
+		return self._cipher.decrypt(data)
+
+# DES 3
+class XeCryptDes3:
+	MODE_ECB = 1
+	MODE_CBC = 2
+
+	def __init__(self, key: Union[bytes, bytearray], mode: Optional[int] = MODE_ECB, iv: Optional[Union[bytes, bytearray]] = None):
+		self.reset()
+		if mode == self.MODE_ECB:
+			self._cipher = DES3.new(key, mode)
+		elif mode == self.MODE_CBC:
+			assert iv is not None, "IV is required for the CBC cipher mode"
+			self._cipher = DES3.new(key, mode, iv)
+		else:
+			raise Exception("Invalid cipher mode entered")
+
+	def reset(self) -> None:
+		self._cipher = None
+
+	@staticmethod
+	def new(key: Union[bytes, bytearray], mode: Optional[int] = MODE_ECB, iv: Optional[Union[bytes, bytearray]] = None):
+		return XeCryptDes3(key, mode, iv)
+
+	def encrypt(self, data: Union[bytes, bytearray]) -> bytes:
+		return self._cipher.encrypt(data)
+
+	def decrypt(self, data: Union[bytes, bytearray]) -> bytes:
+		return self._cipher.decrypt(data)
+
 # AES
 class XeCryptAes:
 	MODE_ECB = 1
 	MODE_CBC = 2
 
-	def __init__(self, key: Union[bytes, bytearray], mode: int = MODE_ECB, iv: Union[bytes, bytearray] = None):
+	def __init__(self, key: Union[bytes, bytearray], mode: Optional[int] = MODE_ECB, iv: Optional[Union[bytes, bytearray]] = None):
 		self.reset()
 		if mode == self.MODE_ECB:
 			self._cipher = AES.new(key, mode)
@@ -470,62 +526,6 @@ class XeCryptAes:
 	@staticmethod
 	def new(key: Union[bytes, bytearray], mode: int = MODE_ECB, iv: Union[bytes, bytearray] = None):
 		return XeCryptAes(key, mode, iv)
-
-	def encrypt(self, data: Union[bytes, bytearray]) -> bytes:
-		return self._cipher.encrypt(data)
-
-	def decrypt(self, data: Union[bytes, bytearray]) -> bytes:
-		return self._cipher.decrypt(data)
-
-# DES
-class XeCryptDes:
-	MODE_ECB = 1
-	MODE_CBC = 2
-
-	def __init__(self, key: Union[bytes, bytearray], mode: int = MODE_ECB, iv: Union[bytes, bytearray] = None):
-		self.reset()
-		if mode == self.MODE_ECB:
-			self._cipher = DES.new(key, mode)
-		elif mode == self.MODE_CBC:
-			assert iv is not None, "IV is required for the CBC cipher mode"
-			self._cipher = DES.new(key, mode, iv)
-		else:
-			raise Exception("Invalid cipher mode entered")
-
-	def reset(self) -> None:
-		self._cipher = None
-
-	@staticmethod
-	def new(key: Union[bytes, bytearray], mode: int = MODE_ECB, iv: Union[bytes, bytearray] = None):
-		return XeCryptDes(key, mode, iv)
-
-	def encrypt(self, data: Union[bytes, bytearray]) -> bytes:
-		return self._cipher.encrypt(data)
-
-	def decrypt(self, data: Union[bytes, bytearray]) -> bytes:
-		return self._cipher.decrypt(data)
-
-# DES 3
-class XeCryptDes3:
-	MODE_ECB = 1
-	MODE_CBC = 2
-
-	def __init__(self, key: Union[bytes, bytearray], mode: int = MODE_ECB, iv: Union[bytes, bytearray] = None):
-		self.reset()
-		if mode == self.MODE_ECB:
-			self._cipher = DES3.new(key, mode)
-		elif mode == self.MODE_CBC:
-			assert iv is not None, "IV is required for the CBC cipher mode"
-			self._cipher = DES3.new(key, mode, iv)
-		else:
-			raise Exception("Invalid cipher mode entered")
-
-	def reset(self) -> None:
-		self._cipher = None
-
-	@staticmethod
-	def new(key: Union[bytes, bytearray], mode: int = MODE_ECB, iv: Union[bytes, bytearray] = None):
-		return XeCryptDes3(key, mode, iv)
 
 	def encrypt(self, data: Union[bytes, bytearray]) -> bytes:
 		return self._cipher.encrypt(data)
@@ -614,12 +614,6 @@ def XeCryptMulHdu(val1: int, val2: int) -> Tuple[int, int]:
 	hi_val = (a >> 64) & UINT64_MASK
 	lo_val = a & UINT64_MASK
 	return (hi_val, lo_val)
-
-def int128_to_two_int64(v: int) -> Tuple[int, int]:
-	v &= UINT128_MASK
-	c = (v >> 64) & UINT64_MASK
-	s = v & UINT64_MASK
-	return (c, s)
 
 def XeCryptBnQwNeModMul(qw_a: Union[bytes, bytearray], qw_b: Union[bytes, bytearray], qw_mi: int, qw_m: Union[bytes, bytearray], cqw: int) -> bytes:
 	a_arr = array("Q", unpack(f">{cqw}Q", qw_a))
@@ -725,13 +719,6 @@ def BnQwBeBufSwap(data: Union[bytes, bytearray], cqw: int) -> bytes:
 		pend -= 8
 		pstart += 8
 	return data
-
-def XeCryptBnQwNeRsaKeyToRsaProv(rsa_key: Union[bytes, bytearray]) -> RSA:
-	key = PY_XECRYPT_RSA_KEY(rsa_key)
-	if key.is_private_key:
-		return RSA.construct((key.n, key.e, key.d, key.p, key.q))
-	else:
-		return RSA.construct((key.n, key.e))
 
 def XeCryptBnQwNeRsaKeyGen(cbits: int = 2048, dwPubExp: int = 0x10001) -> Tuple[bytes, bytes]:
 	prv_key = RSA.generate(cbits, e=dwPubExp)
@@ -1174,6 +1161,14 @@ class PY_XECRYPT_RSA_KEY:
 	def to_bytes(self) -> bytes:
 		return self.key_bytes
 
+	def to_pycrypto(self) -> RSA:
+		if self.is_private_key:
+			return RSA.construct((self.n, self.e, self.d, self.p, self.q))
+		else:
+			return RSA.construct((self.n, self.e))
+
+	to_pycryptodome = to_pycrypto
+
 	def c_struct(self):
 		return self.key_struct
 
@@ -1312,7 +1307,6 @@ __all__ = [
 	"XeCryptBnQwNeModInv",
 	"XeCryptBnQwNeModMul",
 	"XeCryptBnQwNeRsaKeyGen",
-	"XeCryptBnQwNeRsaKeyToRsaProv",
 	"XeCryptBnQwNeRsaPrvCrypt",
 	"XeCryptBnQwNeRsaPubCrypt",
 	"XeCryptCpuKeyGen",
@@ -1328,9 +1322,9 @@ __all__ = [
 	"XeCryptPageEccEncode",
 	"XeCryptRandom",
 	"XeCryptRc4",
-	"XeCryptAes",
 	"XeCryptDes",
 	"XeCryptDes3",
+	"XeCryptAes",
 	"XeCryptRotSum",
 	"XeCryptRotSumSha",
 	"XeCryptSha",

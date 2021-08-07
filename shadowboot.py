@@ -136,7 +136,7 @@ class ShadowbootImage:
 
 			img.parse_metadata()
 
-			# img.parse_patches()
+			img.parse_patches()
 
 			if checks:
 				if not img.check_signature_sb_2bl():
@@ -754,8 +754,22 @@ def main() -> None:
 				print("No patch loader found!")
 		if args.all or args.patches:
 			if len(img.patches) > 1:
+				if not (args.output / "Patches").is_dir():
+					(args.output / "Patches").mkdir()
+
 				for patch in img.patches[1:]:
-					(args.output / f"{patch['address']:04X}.bin").write_bytes(patch["patch_code"])
+					addr = patch["address"]
+					if addr > HYPERVISOR_SIZE:
+						addr += 0x80000000
+					(args.output / "Patches" / f"{addr:08X}.bin").write_bytes(patch["patch_code"])
+
+				combined = b""
+				for patch in img.patches[1:]:
+					combined += pack(">2I", patch["address"], patch["size_int32"])
+					combined += patch["patch_code"]
+				combined += (b"\xFF" * 4)
+
+				(args.output / "patches_raw.bin").write_bytes(combined)
 			else:
 				print("No patches found!")
 	elif args.command == "info":

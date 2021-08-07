@@ -227,7 +227,7 @@ def main() -> None:
     PIRS_PRV_KEY_DEVELOPMENT = read_file("keys/pirs_prv_dev.bin")
     PIRS_PUB_KEY_DEVELOPMENT = PIRS_PRV_KEY_DEVELOPMENT[:XECRYPT_RSAPUB_2048_SIZE]
 
-    data = read_file("Data/Superior.V")
+    data = read_file("Data/whatever.xex")
     with StreamIO(data, Endian.BIG) as sio:
         hdr = read_image_xex_header(sio)
         for ent in read_directory_entries(sio, hdr["header_directory_entry_count"]):

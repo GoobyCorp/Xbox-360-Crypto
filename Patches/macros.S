@@ -5,7 +5,7 @@
 .set ctr,           9
 .set lr,            8
 .set ppe_tlb_rpn, 	0x3B4
-.set PIR,          1023
+.set PIR,           1023
 
 .set KBASE, 0x80000000
 
@@ -76,7 +76,7 @@
 .macro MAKEBRANCH DAddress
 .if(\DAddress)
 		#;Patch structure
- 	b	\DAddress - ((.-0b)+PatchAddr)
+	b	\DAddress - ((.-0b)+PatchAddr)
 .endif
 .endm
 
@@ -84,7 +84,7 @@
 .macro MAKEBRANCHL DAddress 
 .if(\DAddress)
 		#;Patch structure
- 	bl	\DAddress - ((.-0b)+PatchAddr)
+	bl	\DAddress - ((.-0b)+PatchAddr)
 .endif
 .endm
 
@@ -92,7 +92,7 @@
 .macro KMAKEBRANCH DAddress
 .if(\DAddress)
 		#;Patch structure
- 	b	(\DAddress-KBASE) - ((.-0b)+PatchAddr)
+	b	(\DAddress-KBASE) - ((.-0b)+PatchAddr)
 .endif
 .endm
 
@@ -100,18 +100,18 @@
 .macro KMAKEBRANCHL DAddress 
 .if(\DAddress)
 		#;Patch structure
- 	bl	(\DAddress-KBASE) - ((.-0b)+PatchAddr)
+	bl	(\DAddress-KBASE) - ((.-0b)+PatchAddr)
 .endif
 .endm
 
 #;Arg0 is destination address
 .macro BLMAKEBRANCH DAddress
 		#;Patch structure
- 	b	\DAddress - ((.-0b)+PatchAddr)
+	b	\DAddress - ((.-0b)+PatchAddr)
 .endm
 
 #;Arg0 is destination address
 .macro BLMAKEBRANCHL DAddress 
 		#;Patch structure
- 	bl	\DAddress - ((.-0b)+PatchAddr)
+	bl	\DAddress - ((.-0b)+PatchAddr)
 .endm

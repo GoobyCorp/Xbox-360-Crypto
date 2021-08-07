@@ -32,7 +32,7 @@ BUFF_SIZE = 4096
 XBOX_VERSION = b"2.00.17559.0"
 TITLE_VERSION = b"541366016"
 
-def HMAC_RC4_encrypt(key: (bytes, bytearray), dec_data: (bytes, bytearray), msg_type: int) -> bytes:
+def HMAC_RC4_encrypt(key: Union[bytes, bytearray], dec_data: Union[bytes, bytearray], msg_type: int) -> bytes:
 	k1 = XeCryptHmacMd5(key, msg_type.to_bytes(4, "little"))
 	k2 = k1  # no idea why this is done
 
@@ -40,14 +40,14 @@ def HMAC_RC4_encrypt(key: (bytes, bytearray), dec_data: (bytes, bytearray), msg_
 	checksum = XeCryptHmacMd5(k2, confounder + dec_data)
 	k3 = XeCryptHmacMd5(k1, checksum)
 
-	XeCryptRc4EcbKey(k3)
-	confounder = XeCryptRc4(confounder)
-	data = XeCryptRc4(dec_data)
+	cipher = XeCryptRc4.new(k3)
+	confounder = cipher.encrypt(confounder)
+	data = cipher.encrypt(dec_data)
 
 	# refer to edata struct
 	return checksum + confounder + data
 
-def HMAC_RC4_decrypt(key: (bytes, bytearray), enc_data: (bytes, bytearray), msg_type: int) -> Union[bytes, None]:
+def HMAC_RC4_decrypt(key: Union[bytes, bytearray], enc_data: Union[bytes, bytearray], msg_type: int) -> Union[bytes, None]:
 	k1 = XeCryptHmacMd5(key, msg_type.to_bytes(4, "little"))
 	k2 = k1  # no idea why this is done
 
@@ -58,16 +58,16 @@ def HMAC_RC4_decrypt(key: (bytes, bytearray), enc_data: (bytes, bytearray), msg_
 
 	k3 = XeCryptHmacMd5(k1, checksum)
 
-	XeCryptRc4EcbKey(k3)
-	confounder = XeCryptRc4(confounder)
-	data = XeCryptRc4(data)
+	cipher = XeCryptRc4.new(k3)
+	confounder = cipher.decrypt(confounder)
+	data = cipher.decrypt(data)
 
 	# check the checksum
 	if checksum != XeCryptHmacMd5(k2, confounder + data):
 		return None
 	return confounder + data
 
-def compute_client_name(console_id: (bytes, bytearray)) -> bytes:
+def compute_client_name(console_id: Union[bytes, bytearray]) -> bytes:
 	num = 0
 	for i in range(5):
 		num = (num | console_id[i]) << 8
@@ -80,7 +80,7 @@ def compute_client_name(console_id: (bytes, bytearray)) -> bytes:
 			text = text[:3] + "0" + text[3:]
 	return text.encode("ASCII")
 
-def compute_kdc_nonce(key: (bytes, bytearray)) -> (bytes, bytearray):
+def compute_kdc_nonce(key: Union[bytes, bytearray]) -> Union[bytes, bytearray]:
 	key = XeCryptHmacMd5(key, bytes.fromhex("7369676E61747572656B657900"))
 	return XeCryptHmacMd5(key, XeCryptMd5(b"\x02\x04\x00\x00", b"\x00\x00\x00\x00"))
 
@@ -89,13 +89,13 @@ def get_file_time() -> int:
 	dt1 = datetime.utcnow()
 	return int((dt1 - dt0).total_seconds() * 10000000)
 
-def generate_timestamp() -> (bytes, bytearray):
-	array = bytearray(bytes.fromhex("301AA011180F32303132313231323139303533305AA10502030B3543"))
+def generate_timestamp() -> Union[bytes, bytearray]:
+	array = bytearray.fromhex("301AA011180F32303132313231323139303533305AA10502030B3543")
 	s = datetime.utcnow().strftime("%Y%m%d%H%M%S") + "Z"
 	pack_into("<15s", array, 6, s.encode("ASCII"))
 	return array
 
-def get_title_auth_data(key: (bytes, bytearray), data: (bytes, bytearray)) -> (bytes, bytearray):
+def get_title_auth_data(key: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> Union[bytes, bytearray]:
 	src_arr = XeCryptHmacSha(compute_kdc_nonce(key), data)
 	array = bytearray(82)
 	pack_into("<16s", array, 0, src_arr[:16])
@@ -103,12 +103,12 @@ def get_title_auth_data(key: (bytes, bytearray), data: (bytes, bytearray)) -> (b
 	return array
 
 def get_xmacs_logon_key(serial_num: bytes, console_cert: bytes, console_prv_key: bytes, console_id: bytes) -> (bytes, bytearray):
-	rsa_prov = PKCS1_OAEP.new(XeCryptBnQwNeRsaKeyToRsaProv(XMACS_RSA_PUB_2048))
+	rsa_prov = PKCS1_OAEP.new(PY_XECRYPT_RSA_KEY(XMACS_RSA_PUB_2048).to_pycrypto())
 	rand_key = urandom(16)
 	enc_key = reverse(rsa_prov.encrypt(rand_key))
 
 	client_name = compute_client_name(console_id)
-	rsa_prov = PKCS1_v1_5.new(XeCryptBnQwNeRsaKeyToRsaProv(console_prv_key))
+	rsa_prov = PKCS1_v1_5.new(PY_XECRYPT_RSA_KEY(console_prv_key).to_pycrypto())
 	file_time = get_file_time().to_bytes(8, "big")
 	ts = generate_timestamp()
 	enc_ts = HMAC_RC4_encrypt(rand_key, ts, 1)
