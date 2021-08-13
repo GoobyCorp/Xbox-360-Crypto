@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from ctypes import *
+from typing import Union
 from shutil import copyfile
 from subprocess import Popen, PIPE
 from argparse import ArgumentParser
@@ -77,6 +78,17 @@ def extract_cab(filename: str, path: str) -> bool:
 	p.wait()
 	return p.returncode == 0
 
+def stream_decrypt_with_struct(xcp: StreamIO, key: Union[bytes, bytearray], struct_offset: int, data_offset: int, size: int) -> bytes:
+	xcp.offset = struct_offset
+	rc4_sha_struct = xcp.read_struct(RC4_SHA_HEADER)
+	cipher = XeCryptRc4.new(XeCryptHmacSha(key, bytes(rc4_sha_struct.cksm)))
+	cipher.decrypt(bytes(rc4_sha_struct.confounder))
+	xcp.offset = data_offset
+	dec_data = cipher.decrypt(xcp.read(size))
+	xcp.offset = data_offset
+	xcp.write(dec_data)
+	return dec_data
+
 def main() -> None:
 	# setup arguments
 	parser = ArgumentParser(description="A script to decrypt, merge, and convert XCP files for the Xbox 360")
@@ -97,36 +109,26 @@ def main() -> None:
 
 	print("Decrypting XCP file...")
 	with StreamIO(args.input + ".xcp", Endian.LITTLE) as xcp:
-		def init_crypto_at(offset: int) -> None:
-			xcp.offset = offset
-			rc4_sha_struct = xcp.read_struct(RC4_SHA_HEADER)
-			XeCryptRc4EcbKey(XeCryptHmacSha(args.key, bytes(rc4_sha_struct.cksm)))
-			XeCryptRc4(bytes(rc4_sha_struct.confounder))
-
 		print("Decrypting CAB header...")
-		# init crypto
-		init_crypto_at(0x60)
-		# decrypt cab header
-		cab_hdr_data = xcp.perform_function_at(0, 0x60, XeCryptRc4)
+		cab_hdr_data = stream_decrypt_with_struct(xcp, args.key, 0x60, 0, 0x60)
 		cab_hdr_struct = CAB_HEADER.from_buffer_copy(cab_hdr_data)
 		assert cab_hdr_struct.magic in (0x4D534346, 0x4643534D), "Invalid key specified"
 		print("Key appears to be OK!")
 
 		print("Decrypting folder data...")
-		# init crypto
-		init_crypto_at(0x28)
-		# decrypt folder data
 		folder_size = cab_hdr_struct.cnt_folders * (sizeof(CAB_FOLDER) + XENON_DATA_SIZE)
-		xcp.perform_function_at(0x180, folder_size, XeCryptRc4)
+		stream_decrypt_with_struct(xcp, args.key, 0x28, 0x180, folder_size)
 
 		print("Decrypting filenames...")
-		# init crypto
-		init_crypto_at(0x44)
+		xcp.offset = 0x44
+		rc4_sha_struct = xcp.read_struct(RC4_SHA_HEADER)
+		cipher = XeCryptRc4.new(XeCryptHmacSha(args.key, bytes(rc4_sha_struct.cksm)))
+		cipher.decrypt(bytes(rc4_sha_struct.confounder))
 		# decrypt filenames
 		xcp.offset = cab_hdr_struct.off_files
 		for i in range(cab_hdr_struct.cnt_files):
 			# decrypt header
-			xcp.perform_function_at(xcp.offset, sizeof(CAB_ENTRY), XeCryptRc4)
+			xcp.perform_function_at(xcp.offset, sizeof(CAB_ENTRY), cipher.decrypt)
 			# ent = xcp.read_struct_at(xcp.offset, CAB_ENTRY)
 
 			xcp.offset += 0x10
@@ -135,7 +137,7 @@ def main() -> None:
 			idx = 0
 			byt = 0
 			while byt != 0 or idx == 0:
-				byt = xcp.perform_function_at(xcp.offset, 1, XeCryptRc4)[0]
+				byt = xcp.perform_function_at(xcp.offset, 1, cipher.decrypt)[0]
 				xcp.offset += 1
 				idx += 1
 			# rename the files to extract them properly
@@ -155,10 +157,7 @@ def main() -> None:
 			if size <= 0:
 				break
 
-			# init crypto
-			init_crypto_at(xcp.offset)  # folder->XenonData
-			# decrypt folder
-			xcp.perform_function_at(folder.off_cab_start, size, XeCryptRc4)
+			stream_decrypt_with_struct(xcp, args.key, xcp.offset, folder.off_cab_start, size)
 
 	print("Renaming the XCP file...")
 	# renaming is quicker than copying
