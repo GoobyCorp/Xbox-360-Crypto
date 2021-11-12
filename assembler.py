@@ -6,17 +6,28 @@ from keystone import *
 
 REG_EXP = re.compile(r"(r\d+)")
 
+# 0x80066354 = li r4, 0
+# 0x80066358 = addi r3, r11, 0xC00
+# 0x80066360 = li r5, 0
+
 def main() -> None:
 	print("Xbox 360 Interactive Assembler")
 
+	addr = 0
+	line_split = None
 	ks = Ks(KS_ARCH_PPC, KS_MODE_PPC32 + KS_MODE_BIG_ENDIAN)
 
 	capturing = False
 	code_lines = []
 	while True:
+		line_split = None
 		line = input("ASM> ").strip()
+		if ": " in line:
+			line_split = line.split(": ")
+
 		# commands
 		if line.lower() in ["exit", "quit", "close"]:
+			print("Done!")
 			break
 		elif line.lower() in ["start", "begin"]:
 			code_lines = []
@@ -41,17 +52,29 @@ def main() -> None:
 			continue
 
 		# parse as assembly
-		line = REG_EXP.sub(r"%\1", line)
 		try:
-			(code, line_num) = ks.asm(line)
-			code = bytes(code)
-			if capturing:
-				code_lines.append((line, code))
+			if len(line_split) == 2:
+				line_split[1] = REG_EXP.sub(r"%\1", line_split[1])
+				(code, line_num) = ks.asm(line_split[1], int(line_split[0], 16))
+				code = bytes(code)
+				if capturing:
+					code_lines.append((line_split[1], code))
+				else:
+					print(code.hex().upper())
+					code = ", ".join([f"0x{x:02X}" for x in code])
+					code = f"BYTE code[] = {{ {code} }}; // {line_split[1]}"
+					print(code)
 			else:
-				print(code.hex().upper())
-				code = ", ".join([f"0x{x:02X}" for x in code])
-				code = f"BYTE code[] = {{ {code} }}; // {line}"
-				print(code)
+				line = REG_EXP.sub(r"%\1", line)
+				(code, line_num) = ks.asm(line)
+				code = bytes(code)
+				if capturing:
+					code_lines.append((line, code))
+				else:
+					print(code.hex().upper())
+					code = ", ".join([f"0x{x:02X}" for x in code])
+					code = f"BYTE code[] = {{ {code} }}; // {line}"
+					print(code)
 		except Exception as e:
 			print(e.message)
 

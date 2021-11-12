@@ -13,6 +13,8 @@ def main() -> None:
 	assemble_patch("Patches/Zero/SD/sd_17489_patches.S", "Output/Zero/xell.bin", PATCH_DIR)
 	assemble_patch("Patches/Spoofy.S", "Output/Spoofy.bin", PATCH_DIR)
 
+	assemble_patch("Patches/remap_bootanim_17559.S", "Output/remap_bootanim_17559.bin", PATCH_DIR)
+
 	# assemble_patch("C://Users/John/Desktop/BlowFuselines.S", r"C://Users/John/Desktop/BlowFuselines.bin", PATCH_DIR)
 
 	vfuses_data = Path("Output/Zero/vfuses_17489.bin").read_bytes()

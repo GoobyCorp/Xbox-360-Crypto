@@ -35,11 +35,11 @@ XECRYPT_SC_SALT  = b"XBOX_ROM_3"
 XECRYPT_SD_SALT  = b"XBOX_ROM_4"
 BUFFER_SIZE      = 4096
 
-UINT8_MASK   = 0xFF
-UINT16_MASK  = 0xFFFF
-UINT32_MASK  = 0xFFFFFFFF
-UINT64_MASK  = 0xFFFFFFFFFFFFFFFF
-UINT128_MASK = 0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF
+UINT8_MASK   = int.from_bytes(b"\xFF", "little")
+UINT16_MASK  = int.from_bytes(b"\xFF" * 2, "little")
+UINT32_MASK  = int.from_bytes(b"\xFF" * 4, "little")
+UINT64_MASK  = int.from_bytes(b"\xFF" * 8, "little")
+UINT128_MASK = int.from_bytes(b"\xFF" * 16, "little")
 
 # public key sizes
 XECRYPT_RSAPUB_1024_SIZE = 0x90
@@ -443,11 +443,15 @@ class XeCryptRc4:
 	def new(key: Union[bytes, bytearray]):
 		return XeCryptRc4(key)
 
-	def encrypt(self, data: Union[bytes, bytearray]) -> bytes:
+	# encrypt and decrypt are exactly the same for RC4
+	def crypt(self, data: Union[bytes, bytearray]) -> bytes:
 		return self._cipher.encrypt(data)
 
+	def encrypt(self, data: Union[bytes, bytearray]) -> bytes:
+		return self.crypt(data)
+
 	def decrypt(self, data: Union[bytes, bytearray]) -> bytes:
-		return self._cipher.decrypt(data)
+		return self.crypt(data)
 
 # DES
 class XeCryptDes:
