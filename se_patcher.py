@@ -13,10 +13,10 @@ def main() -> None:
 	sd_data = bytearray(Path("Output/Winchester/sd_17489.bin").read_bytes())
 	se_data = bytearray(Path("Output/Winchester/hypervisor.bin").read_bytes() + Path("Output/Winchester/kernel.exe").read_bytes())
 
-	sd_data = apply_patches(sd_data, Path("C://Users/John/Desktop/patch.bin").read_bytes())
+	# sd_data = apply_patches(sd_data, Path("C://Users/John/Desktop/patch.bin").read_bytes())
 
 	# apply patches
-	# se_data = apply_patches(se_data, Path("Output/Zero/HVK.bin").read_bytes())
+	se_data = apply_patches(se_data, Path("Output/Zero/HVK.bin").read_bytes())
 	# compress SE
 	# se_data = bytearray(compress_se(se_data))
 	se_data = bytearray(0x20) + se_data
