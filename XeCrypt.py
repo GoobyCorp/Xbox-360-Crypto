@@ -1203,8 +1203,8 @@ class PY_XECRYPT_RSA_KEY:
 		assert self.is_private_key, "Key isn't a private key!"
 		return XeKeysPkcs1Create(hash, self.key_bytes)
 
+# constants
 __all__ = [
-	# constants
 	"XECRYPT_1BL_KEY",
 	"XECRYPT_1BL_SALT",
 	"XECRYPT_AES_BLOCK_SIZE",
@@ -1226,9 +1226,11 @@ __all__ = [
 	"XECRYPT_SC_SALT",
 	"XECRYPT_SD_SALT",
 	"XECRYPT_SHA_DIGEST_SIZE",
-	"XECRYPT_SMC_KEY",
+	"XECRYPT_SMC_KEY"
+]
 
-	# structures
+# structures
+__all__.extend([
 	"NAND_HEADER",
 	"BL_HEADER",
 	"SB_2BL_HEADER",
@@ -1249,18 +1251,26 @@ __all__ = [
 	"XECRYPT_RSAPRV_1536",
 	"XECRYPT_RSAPRV_2048",
 	"XECRYPT_RSAPRV_4096",
-	"XECRYPT_SIG",
+	"XECRYPT_SIG"
+])
 
-	# helper classes
-	"BLHeader",
+# helper classes
+__all__.extend([
+	"BLHeader"
+])
 
-	# managed key class
-	"PY_XECRYPT_RSA_KEY",
+# managed key class
+__all__.extend([
+	"PY_XECRYPT_RSA_KEY"
+])
 
-	# enums
-	"BLMagic",
+# enums
+__all__.extend([
+	"BLMagic"
+])
 
-	# functions
+# functions
+__all__.extend([
 	"XeCryptBnDwLePkcs1Format",
 	"XeCryptBnDwLePkcs1Verify",
 	"XeCryptBnQwBeSigCreate",
@@ -1295,7 +1305,9 @@ __all__ = [
 	"XeCryptUidEccEncode",
 	"XeKeysPkcs1Create",
 	"XeKeysPkcs1Verify"
-]
+])
+
+# utility functions
 __all__.extend([
 	"read_file",
 	"write_file",
@@ -1306,10 +1318,4 @@ __all__.extend([
 	"print_c_array",
 	"XeCryptBnQw_SwapDwQwLeBe",
 	"XeCryptPrintRsa"
-])
-
-__all__.extend([
-	"calc_page_ecc",
-	"fix_page_ecc",
-	"check_page_ecc"
 ])
