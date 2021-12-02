@@ -1008,48 +1008,6 @@ def XeCryptPageEccEncode(data: Union[bytes, bytearray]) -> bytes:
 		v1 >>= 1
 	return bytes(data)
 
-def calc_page_ecc(data: Union[bytes, bytearray], spare: Union[bytes, bytearray]) -> int:
-	if type(data) == bytes:
-		data = bytearray(data)
-
-	val = 0
-	v = 0
-	idx = 0
-	for bit in range(0x1066):
-		if not (bit & 31):
-			if bit == 0x1000:
-				data = spare
-				idx = 0
-			(v,) = unpack_from("<I", data, idx)
-			v = ~v
-			idx += 4
-		val ^= v & 1
-		v >>= 1
-		if val & 1:
-			val ^= 0x6954559
-		val >>= 1
-	return ~val & 0xFFFFFFFF
-
-def fix_page_ecc(data: Union[bytes, bytearray], spare: Union[bytes, bytearray]) -> Tuple[bytes, bytes]:
-	if type(spare) == bytes:
-		spare = bytearray(spare)
-
-	val = calc_page_ecc(data, spare)
-	spare[12] = (spare[12] & 0x3F) + ((val << 6) & 0xC0)
-	spare[13] = (val >> 2) & 0xFF
-	spare[14] = (val >> 10) & 0xFF
-	spare[15] = (val >> 18) & 0xFF
-	return (data, spare)
-
-def check_page_ecc(data: Union[bytes, bytearray], spare: Union[bytes, bytearray]) -> bool:
-	val = calc_page_ecc(data, spare)
-	if spare[12] & 0xC0 == ((val << 6) & 0xC0) and \
-		spare[13] & 0xFF == ((val >> 2) & 0xFF) and \
-		spare[14] & 0xFF == ((val >> 10) & 0xFF) and \
-		spare[15] & 0xFF == ((val >> 18) & 0xFF):
-		return True
-	return False
-
 # helper classes
 class BLHeader:
 	include_nonce = True

@@ -18,18 +18,18 @@
     KMAKEPATCH 0x80061298
 0:
 	# output POST code 0x73
-    li r3, 0x73
-    KMAKEBRANCHL HvxPostOutput
-    # init HDD before bootanim
-    KMAKEBRANCHL SataDiskInitialize
-    # init DVD after bootanim
-    KMAKEBRANCHL SataCdRomInitialize
-    # output POST code 0x72
-    li r3, 0x72
-    KMAKEBRANCHL HvxPostOutput
-    # start the boot animation
-    li r3, 0
-    KMAKEBRANCHL AniStartBootAnimation
+	li r3, 0x73
+	KMAKEBRANCHL HvxPostOutput
+	# init HDD before bootanim
+	KMAKEBRANCHL SataDiskInitialize
+	# init DVD after bootanim
+	KMAKEBRANCHL SataCdRomInitialize
+	# output POST code 0x72
+	li r3, 0x72
+	KMAKEBRANCHL HvxPostOutput
+	# start the boot animation
+	li r3, 0
+	KMAKEBRANCHL AniStartBootAnimation
 9:
 
 # remove bound path limit, set new bootanim path, and remove the minimum bootanim version
