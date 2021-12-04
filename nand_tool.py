@@ -3,13 +3,126 @@
 from io import BytesIO
 from pathlib import Path
 from struct import pack, pack_into, unpack_from
+from ctypes import BigEndianStructure, c_ubyte, c_uint16, c_uint32, c_uint64
 
+# constants
 SEEK_SET = 0
 SEEK_CUR = 1
 SEEK_END = 2
 
 MODE_FILE = 0
 MODE_FLASH = 1
+
+# types
+BYTE  = c_ubyte
+WORD  = c_uint16
+DWORD = c_uint32
+QWORD = c_uint64
+
+class SMALLBLOCK(BigEndianStructure):
+	def __getattribute__(self, item):
+		if item == "block_id":
+			res = ((self.block_id_0 << 8) & 0xF) + (self.block_id_1 & 0xFF)
+		elif item == "fs_size":
+			res = ((self.fs_size_0 << 8) & 0xFF) + (self.fs_size_1 & 0xFF)
+		else:
+			res = super(SMALLBLOCK, self).__getattribute__(item)
+		return res
+
+	_fields_ = [
+		("block_id_1", BYTE),  # lba/id = (((BlockID0<<8)&0xF)+(BlockID1&0xFF))
+		("block_id_0", BYTE, 4),
+		("fs_unused_0", BYTE, 4),
+		("fs_sequence_0", BYTE),
+		("fs_sequence_1", BYTE),
+		("fs_sequence_2", BYTE),
+		("bad_block", BYTE),
+		("fs_sequence_3", BYTE),
+		("fs_size_1", BYTE),  # (((FsSize0<<8)&0xFF)+(FsSize1&0xFF)) = cert size
+		("fs_size_0", BYTE),
+		("fs_page_count", BYTE),
+		# free pages left in block (ie: if 3 pages are used by cert then this would be 29:0x1d)
+		("fs_unused_1", BYTE * 2),
+		("fs_block_type", BYTE, 6),
+		("ecc_3", BYTE, 2),  # 26 bit ECD
+		("ecc_2", BYTE),
+		("ecc_1", BYTE),
+		("ecc_0", BYTE)
+	]
+
+
+class BIGONSMALL(BigEndianStructure):
+	def __getattribute__(self, item):
+		if item == "block_id":
+			res = ((self.block_id_0 << 8) & 0xF) + (self.block_id_1 & 0xFF)
+		elif item == "fs_size":
+			res = ((self.fs_size_0 << 8) & 0xFF) + (self.fs_size_1 & 0xFF)
+		else:
+			res = super(BIGONSMALL, self).__getattribute__(item)
+		return res
+
+	_fields_ = [
+		("fs_sequence_0", BYTE),
+		("block_id_1", BYTE),  # lba/id = (((BlockID0<<8)&0xF)+(BlockID1&0xFF))
+		("block_id_0", BYTE, 4),
+		("fs_unused_0", BYTE, 4),
+		("fs_sequence_1", BYTE),
+		("fs_sequence_2", BYTE),
+		("bad_block", BYTE),
+		("fs_sequence_3", BYTE),
+		("fs_size_1", BYTE),  # (((FsSize0<<8)&0xFF)+(FsSize1&0xFF)) = cert size
+		("fs_size_0", BYTE),
+		("fs_page_count", BYTE),
+		# free pages left in block (ie: if 3 pages are used by cert then this would be 29:0x1d)
+		("fs_unused_1", BYTE * 2),
+		("fs_block_type", BYTE, 6),
+		("ecc_3", BYTE, 2),  # 26 bit ECD
+		("ecc_2", BYTE),
+		("ecc_1", BYTE),
+		("ecc_0", BYTE)
+	]
+
+
+class BIGBLOCK(BigEndianStructure):
+	def __getattribute__(self, item):
+		if item == "block_id":
+			res = ((self.block_id_0 << 8) & 0xF) + (self.block_id_1 & 0xFF)
+		elif item == "fs_size":
+			res = ((self.fs_size_0 << 8) & 0xFF) + (self.fs_size_1 & 0xFF)
+		else:
+			res = super(BIGBLOCK, self).__getattribute__(item)
+		return res
+
+	def __setattr__(self, key, value):
+		if key == "block_id":
+			raise NotImplementedError("block_id can't be set yet!")
+		elif key == "fs_size":
+			raise NotImplementedError("fs_size can't be set yet!")
+		else:
+			res = super(BIGBLOCK, self).__setattr__(key, value)
+		return res
+
+	_fields_ = [
+		("bad_block", BYTE),
+		("block_id_1", BYTE),  # lba/id = (((BlockID0<<8)&0xF)+(BlockID1&0xFF))
+		("block_id_0", BYTE, 4),
+		("fs_unused_0", BYTE, 4),
+		("fs_sequence_1", BYTE),
+		("fs_sequence_2", BYTE),
+		("fs_sequence_0", BYTE),
+		("fs_sequence_3", BYTE),
+		("fs_size_1", BYTE),
+		# FS: 06 (system reserve block number) else (((FsSize0<<8)&0xFF)+(FsSize1&0xFF)) = cert size
+		("fs_size_0", BYTE),  # FS: 20 (size of flash filesys in smallblocks >>5)
+		("fs_page_count", BYTE),
+		# FS: 04 (system config reserve) free pages left in block (multiples of 4 pages, ie if 3f then 3f*4 pages are free after)
+		("fs_unused_1", BYTE * 2),
+		("fs_block_type", BYTE, 6),
+		("ecc_3", BYTE, 2),  # 26 bit ECD
+		("ecc_2", BYTE),
+		("ecc_1", BYTE),
+		("ecc_0", BYTE)
+	]
 
 def calc_page_ecc(data: (bytes, bytearray), spare: (bytes, bytearray)) -> int:
 	if type(data) == bytes:
