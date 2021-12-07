@@ -2,7 +2,7 @@
 
 from io import BytesIO
 from pathlib import Path
-from struct import pack, pack_into, unpack_from
+from struct import pack, unpack_from
 from ctypes import BigEndianStructure, c_ubyte, c_uint16, c_uint32, c_uint64
 
 # constants
@@ -124,7 +124,7 @@ class BIGBLOCK(BigEndianStructure):
 		("ecc_0", BYTE)
 	]
 
-def calc_page_ecc(data: (bytes, bytearray), spare: (bytes, bytearray)) -> int:
+def calc_page_ecc(data: bytes | bytearray, spare: bytes | bytearray) -> int:
 	if type(data) == bytes:
 		data = bytearray(data)
 
@@ -146,7 +146,7 @@ def calc_page_ecc(data: (bytes, bytearray), spare: (bytes, bytearray)) -> int:
 		val >>= 1
 	return ~val & 0xFFFFFFFF
 
-def fix_page_ecc(data: (bytes, bytearray), spare: (bytes, bytearray)) -> tuple:
+def fix_page_ecc(data: bytes | bytearray, spare: bytes | bytearray) -> tuple:
 	if type(spare) == bytes:
 		spare = bytearray(spare)
 
@@ -372,7 +372,7 @@ class NANDImage:
 		# self.flash_offset = self.flash_tell()
 		return data
 
-	def flash_write(self, data: (bytes, bytearray)) -> int:
+	def flash_write(self, data: bytes | bytearray) -> int:
 		strt_page = self.flash_offset_to_page(self.flash_offset)
 		strt_offs = self.flash_calc_page_offset(self.flash_offset)
 		stop_page = self.flash_offset_to_page(self.flash_offset + len(data))
@@ -390,18 +390,22 @@ class NANDImage:
 			if strt_page == stop_page:  # only one page
 				chunk_size = stop_offs - strt_offs
 				tmp_page = bytearray(self.get_page(strt_page))
-				pack_into(f"{chunk_size}s", tmp_page, strt_offs, bio.read(chunk_size))
+				# pack_into(f"{chunk_size}s", tmp_page, strt_offs, bio.read(chunk_size))
+				tmp_page[strt_offs:strt_offs + chunk_size] = bio.read(chunk_size)
 
 			for page_num in range(strt_page, stop_page):
 				tmp_page = bytearray(self.get_page(page_num))
 				if page_num == strt_page:  # first page
 					chunk_size = 512 - strt_offs
-					pack_into(f"{chunk_size}s", tmp_page, strt_offs, bio.read(512 - strt_offs))
+					# pack_into(f"{chunk_size}s", tmp_page, strt_offs, bio.read(512 - strt_offs))
+					tmp_page[strt_offs:strt_offs + chunk_size] = bio.read(512 - strt_offs)
 				elif page_num == stop_page:  # last page
 					chunk_size = 512 - stop_offs
-					pack_into(f"{chunk_size}s", tmp_page, 0, bio.read(chunk_size))
+					# pack_into(f"{chunk_size}s", tmp_page, 0, bio.read(chunk_size))
+					tmp_page[:chunk_size] = bio.read(chunk_size)
 				else:  # between first and last
-					pack_into(f"512s", tmp_page, 0, bio.read(512))
+					# pack_into(f"512s", tmp_page, 0, bio.read(512))
+					tmp_page[:512] = bio.read(512)
 				nw += self.set_page(page_num, tmp_page)
 		# self.flash_offset = self.flash_tell()
 		return nw
@@ -425,7 +429,7 @@ class NANDImage:
 		self.file_seek(self.calc_spare_offset(num))
 		return self.file_read(16)
 
-	def set_page(self, num: int, data: (bytes, bytearray)) -> int:
+	def set_page(self, num: int, data: bytes | bytearray) -> int:
 		"""
 		Set a page by page number
 		:param num:
@@ -441,7 +445,7 @@ class NANDImage:
 		nw += self.file_write(spare_data)
 		return nw
 
-	def set_spare(self, num: int, data: (bytes, bytearray)) -> int:
+	def set_spare(self, num: int, data: bytes | bytearray) -> int:
 		"""
 		Set a spare by spare number
 		:param num:
