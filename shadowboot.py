@@ -58,6 +58,17 @@ def pad_hex(i: int) -> str:
 def path_type(parser: ArgumentParser, value: str) -> Path:
 	return Path(value)
 
+def unecc(path: str, block_size: int = 512, spare_size: int = 16) -> bytes:
+	with BytesIO() as bio, open(path, "rb") as f:
+		f.seek(0, 2)
+		size = f.tell()
+		f.seek(0)
+		while f.tell() < size:
+			data = f.read(block_size)
+			f.seek(spare_size, 1)
+			bio.write(data)
+		return bio.getvalue()
+
 class ShadowbootImage:
 	# I/O stream
 	_stream = None
@@ -243,9 +254,10 @@ class ShadowbootImage:
 			self._stream.seek(self.img_map["SMC"]["offset"])
 			self.smc_data = XeCryptSmcDecrypt(self._stream.read(self.img_map["SMC"]["size"]))
 
-	# def parse_smc_config(self) -> None:
-	# 	self._stream.seek(self.nand_header.smc_config_offset)
-	# 	self.smc_config_data = self._stream.read(SMC_CONFIG_SIZE)
+	def parse_smc_config(self) -> None:
+		if self.nand_header.smc_config_offset > 0:
+			self._stream.seek(self.nand_header.smc_config_offset)
+			self.smc_config_data = self._stream.read(SMC_CONFIG_SIZE)
 
 	def parse_keyvault(self) -> None:
 		if self.img_map["KV"]["offset"] > 0:
@@ -396,16 +408,39 @@ class ShadowbootImage:
 			return XeCryptRotSumSha(self.se_data[:0x10] + self.se_data[0x20:]) == self.se_digest
 		return True
 
+	def print_info(self) -> None:
+		print(f"Console Type:   {self.console_type}")
+		print(f"SMC Version:    {self.smc_version}")
+		print(f"SB Version:     {self.sb_build}")
+		print(f"SC Version:     {self.sc_build}")
+		print(f"SD Version:     {self.sd_build}")
+		print(f"SE Version:     {self.se_build}")
+		print(f"HV Version:     {self.hypervisor_version}")
+		print(f"Kernel Version: {self.kernel_version}")
+
+		is_retail = self.hypervisor_data[0] == 0x4E
+		is_testkit = bytes.fromhex("5C746573746B69745C") in self.kernel_data
+
+		if is_retail:
+			print("Main Menu:      Dashboard")
+		else:
+			print("Main Menu:      XShell")
+
+		if is_testkit:
+			print("Hardware:       Test Kit")
+		else:
+			print("Hardware:       Development Kit")
+
 def main() -> None:
 	global MANIFEST_FILE, ONE_BL_KEY, SB_PRV_KEY
 
 	parser = ArgumentParser(description=__description__)
-	parser.add_argument("--nochecks", action="store_true", help="Perform shadowboot parsing without integrity checks")
 	subparsers = parser.add_subparsers(dest="command")
 
 	build_parser = subparsers.add_parser("build")
 	# build_parser.add_argument("input", type=str, help="The input path")
 	build_parser.add_argument("output", type=lambda x: path_type(build_parser, x), help="The output path")
+	build_parser.add_argument("--nochecks", action="store_true", help="Perform shadowboot parsing without integrity checks")
 	build_parser.add_argument("-m", "--manifest", type=lambda x: path_type(build_parser, x), help="The build manifest file")
 	build_parser.add_argument("-b", "--build-dir", type=lambda x: path_type(build_parser, x), help="The build directory path")
 
@@ -414,6 +449,8 @@ def main() -> None:
 	extract_parser.add_argument("output", type=lambda x: path_type(extract_parser, x), help="The output path")
 	# extract_parser.add_argument("--nochecks", action="store_true", help="Extract without doing sanity checks")
 	# extract_parser.add_argument("--raw", action="store_true", help="No decryption performed")
+	extract_parser.add_argument("--flash", action="store_true", help="Parse a flash image instead of a shadowboot")
+	extract_parser.add_argument("--nochecks", action="store_true", help="Perform shadowboot parsing without integrity checks")
 	extract_parser.add_argument("--all", action="store_true", help="Extract all sections")
 	extract_parser.add_argument("--smc", action="store_true", help="Extract the SMC")
 	extract_parser.add_argument("--keyvault", "--kv", action="store_true", help="Extract the keyvault")
@@ -428,10 +465,13 @@ def main() -> None:
 
 	info_parser = subparsers.add_parser("info")
 	info_parser.add_argument("input", type=lambda x: path_type(info_parser, x), help="The input path")
+	info_parser.add_argument("--flash", action="store_true", help="Parse a flash image instead of a shadowboot")
+	info_parser.add_argument("--nochecks", action="store_true", help="Perform shadowboot parsing without integrity checks")
 
 	test_parser = subparsers.add_parser("test")
 	test_parser.add_argument("input", type=lambda x: path_type(test_parser, x), help="The input path")
 	test_parser.add_argument("output", type=lambda x: path_type(test_parser, x), help="The output path")
+	test_parser.add_argument("--nochecks", action="store_true", help="Perform shadowboot parsing without integrity checks")
 
 	args = parser.parse_args()
 
@@ -444,7 +484,7 @@ def main() -> None:
 	assert crc32(SB_PRV_KEY) == 0x490C9D35, "Invalid SD private key"
 
 	if args.command == "build":
-		if args.manifest.isfile():  # building with a manifest file
+		if args.manifest.is_file():  # building with a manifest file
 			# load the manifest file
 			print("Loading build manifest...")
 			build_manifest = loads(args.manifest.read_text())
@@ -494,10 +534,10 @@ def main() -> None:
 				else:
 					assert verify_checksum(build_manifest["files"][key.replace("_checksum", "")], value), f"Invalid {key}"
 		elif args.build_dir is not None:  # using a build directory vs a manifest
-			sb_file = args.build_dir / "sb.bin"
-			sc_file = args.build_dir / "sc.bin"
-			sd_file = args.build_dir / "sd.bin"
-			se_file = args.build_dir / "se.bin"
+			sb_file = args.build_dir / "SB.bin"
+			sc_file = args.build_dir / "SC.bin"
+			sd_file = args.build_dir / "SD.bin"
+			se_file = args.build_dir / "SE.bin"
 			kernel_file = args.build_dir / "kernel.bin"
 			hypervisor_file = args.build_dir / "hypervisor.bin"
 			base_img_file = args.build_dir / "xboxrom.bin"
@@ -721,28 +761,30 @@ def main() -> None:
 
 		print(f"Final image location: \"{str(args.output.absolute())}\"")
 	elif args.command == "extract":
-		img = ShadowbootImage.parse(args.input.read_bytes(), not args.nochecks)
+		if args.flash:
+			img = ShadowbootImage.parse(unecc(str(args.input)), not args.nochecks)
+		else:
+			img = ShadowbootImage.parse(args.input.read_bytes(), not args.nochecks)
 
-		print(f"Console Type:       {img.console_type}")
-		print(f"SMC Version:        {img.smc_version}")
-		print(f"Kernel Version:     {img.kernel_version}")
-		print(f"HyperVisor Version: {img.hypervisor_version}")
+		img.print_info()
 
 		if args.all or args.smc:
 			# write_file(join(args.output, "SMC_dec.bin"), img.smc_data)
-			(args.output / "SMC_dec.bin").write_bytes(img.smc_data)
+			if img.smc_data is not None and len(img.smc_data) > 0:
+				(args.output / "SMC_dec.bin").write_bytes(img.smc_data)
 		# if args.all or args.smc_config:
-		# 	write_file(join(args.output, "smc_config.bin"), img.smc_config_data)
+		# 	(args.output / "smc_config.bin").write_bytes(img.smc_config_data)
 		if args.all or args.keyvault:
-			(args.output / "KV_dec.bin").write_bytes(img.kv_data)
+			if img.kv_data is not None and len(img.kv_data) > 0:
+				(args.output / "KV_enc.bin").write_bytes(img.kv_data)
 		if args.all or args.sb:
-			(args.output / f"sb_{img.sb_build}.bin").write_bytes(img.sb_data)
+			(args.output / f"SB_{img.sb_build}.bin").write_bytes(img.sb_data)
 		if args.all or args.sc:
-			(args.output / f"sc_{img.sc_build}.bin").write_bytes(img.sc_data)
+			(args.output / f"SC_{img.sc_build}.bin").write_bytes(img.sc_data)
 		if args.all or args.sd:
-			(args.output / f"sd_{img.sd_build}.bin").write_bytes(img.sd_data)
+			(args.output / f"SD_{img.sd_build}.bin").write_bytes(img.sd_data)
 		if args.all or args.se:
-			(args.output / f"se_{img.se_build}.bin").write_bytes(img.se_data)
+			(args.output / f"SE_{img.se_build}.bin").write_bytes(img.se_data)
 		if args.all or args.kernel:
 			(args.output / "kernel.exe").write_bytes(img.kernel_data)
 		if args.all or args.hypervisor:
@@ -773,29 +815,12 @@ def main() -> None:
 			else:
 				print("No patches found!")
 	elif args.command == "info":
-		img = ShadowbootImage.parse(args.input.read_bytes(), not args.nochecks)
-
-		print(f"Console Type:   {img.console_type}")
-		print(f"SMC Version:    {img.smc_version}")
-		print(f"SB Version:     {img.sb_build}")
-		print(f"SC Version:     {img.sc_build}")
-		print(f"SD Version:     {img.sd_build}")
-		print(f"SE Version:     {img.se_build}")
-		print(f"HV Version:     {img.hypervisor_version}")
-		print(f"Kernel Version: {img.kernel_version}")
-
-		is_retail = img.hypervisor_data[0] == 0x4E
-		is_testkit = bytes.fromhex("5C746573746B69745C") in img.kernel_data
-
-		if is_retail:
-			print("Main Menu:      Dashboard")
+		if args.flash:
+			img = ShadowbootImage.parse(unecc(str(args.input)), not args.nochecks)
 		else:
-			print("Main Menu:      XShell")
+			img = ShadowbootImage.parse(args.input.read_bytes(), not args.nochecks)
 
-		if is_testkit:
-			print("Hardware:       Test Kit")
-		else:
-			print("Hardware:       Development Kit")
+		img.print_info()
 	elif args.command == "test":
 		#sb = ShadowbootImage(read_file("C://Users/John/Desktop/xboxrom_13146_patched.bin"), False)
 		#write_file("C://Users/John/Desktop/hv.bin", sb.hypervisor_data)

@@ -19,8 +19,8 @@ _start:
 #.print " --- Adding CPU check ---"
 #.include "RGLoader-cpu_check.S"
 
-.print "  --- SYSTEM ROOT MAPPED TO HDD ---"
-.include "RGLoader-sysroot_hdd.S"
+#.print "  --- SYSTEM ROOT MAPPED TO HDD ---"
+#.include "RGLoader-sysroot_hdd.S"
 
 .print "  --- DISABLING FCRT ---"
 .include "RGLoader-nofcrt.S"
@@ -98,7 +98,7 @@ _start:
 # ============================================================================
 #	HV jump to flag fixer
 # ============================================================================
-	MAKEPATCH 0x000018B8 
+	MAKEPATCH 0x000018B8
 0:
 	ba  0xB188      #(CHANGE THE ADDR TO FLAG FIXING FUNCTIONS ADDR) ^
 9:
@@ -107,7 +107,7 @@ _start:
 #	HV Flag fixing function
 # note: store at empty space
 # ============================================================================
-	MAKEPATCH 0x0000B188 
+	MAKEPATCH 0x0000B188
 0:
 	lhz     %r3, 0x6(%r0)  # load flag byte into r3
 	li      %r4, 0x21
@@ -591,7 +591,6 @@ _start:
 0:
 	KMAKEBRANCHL loaderFuncAddr
 9:
-
 
 # ============================================================================
 	.long 0xffffffff

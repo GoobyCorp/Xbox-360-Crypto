@@ -104,7 +104,7 @@ def main() -> None:
 	# Research/STFS/E00000F6485B4E18/FFFE07D1/00010000/E00000F6485B4E18
 	# Save:
 	# Research/STFS/E00000F6485B4E18/584108A9/00000001/beansave.dat
-	with StreamIO("Research/STFS/E00000F6485B4E18/FFFE07D1/00010000/E00000F6485B4E18", Endian.BIG) as package:
+	with StreamIO("Research/STFS/NXE E3 Stockholm/7B9260A9EAF90216BFF91B5575E0BFD51981FC66FF", Endian.BIG) as package:
 		magic = package.read(4)
 		if magic == b"CON ":
 			pub_key_len = package.read_uint16()
@@ -147,29 +147,45 @@ def main() -> None:
 			descriptor = package.read(descriptor_size)
 			data_file_count = package.read_uint32()
 			data_file_combined_size = package.read_uint64()
+
+			# package.seek(0x4C, SEEK_CUR)
+			if metadata_version == 2:
+				series_id = package.read(0x10)
+				season_id = package.read(0x10)
+				season_num = package.read_short()
+				episode_num = package.read_short()
+				package.seek(0x28, SEEK_CUR)
+			else:
+				package.seek(0x4C, SEEK_CUR)
+
 			descriptor_type = package.read_ubyte()
-			package.seek(4 + 0x4C, SEEK_CUR)
 			device_id = package.read(0x14)
 			display_name = package.read(0x900)
 			display_description = package.read(0x900)
 			publisher_name = package.read(0x80)
 			title_name = package.read(0x80)
 			transfer_flags = package.read_ubyte()
+
 			thumbnail_image_size = package.read_uint32()
 			title_thumbnail_image_size = package.read_uint32()
-			thumbnail_image = package.read(thumbnail_image_size)
-			title_thumbnail_image = package.read(title_thumbnail_image_size)
 
-			print("Metadata Version: " + str(metadata_version))
-			print("Descriptor Type:  " + str(DescriptorType(descriptor_type)))
+			if metadata_version == 2:
+				thumbnail_image = package.read(thumbnail_image_size)
+				title_thumbnail_image = package.read(title_thumbnail_image_size)
+			else:
+				thumbnail_image = package.read(thumbnail_image_size)
+				title_thumbnail_image = package.read(title_thumbnail_image_size)
+
+			print(f"Metadata Version: {metadata_version}")
+			print(f"Descriptor Type:  {DescriptorType(descriptor_type)}")
 			print("Console ID:       " + console_id.hex())
 			print("Profile ID:       " + profile_id.hex())
 			print("Device ID:        " + device_id.hex())
 
-			print("Display Name:     " + display_name.decode("UTF8"))
-			print("Display Desc.:    " + display_description.decode("UTF8"))
-			print("Publisher Name:   " + publisher_name.decode("UTF8"))
-			print("Title Name:       " + title_name.decode("UTF8"))
+			print("Display Name:     " + display_name.decode("UTF-16-BE"))
+			print("Display Desc.:    " + display_description.decode("UTF-16-BE"))
+			print("Publisher Name:   " + publisher_name.decode("UTF-16-BE"))
+			print("Title Name:       " + title_name.decode("UTF-16-BE"))
 		else:
 			print("Invalid package magic")
 

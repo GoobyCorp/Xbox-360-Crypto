@@ -2,7 +2,7 @@
 
 from enum import IntEnum
 from pathlib import Path
-from struct import pack_into
+from struct import pack, pack_into
 
 from XeCrypt import XeCryptCpuKeyGen, XeCryptKeyVaultEncrypt
 
@@ -11,6 +11,20 @@ class ConsoleType(IntEnum):
 	RETAIL_SLIM = 1
 	TEST_KIT    = 2
 	DEVKIT      = 3
+
+def set_fuseline(fuse_data: bytes | bytearray, line: int, value: str | int | bytes | bytearray) -> bytearray:
+	if type(fuse_data) is bytes:
+		fuse_data = bytearray(fuse_data)
+
+	if type(value) is int:
+		value = pack(">Q", value)
+	elif type(value) is str:
+		assert len(value) == 16, "Invalid fuse line"
+		value = bytes.fromhex(value)
+
+	assert len(value) == 8, "Invalid fuse line"
+	pack_into("8s", fuse_data, line * 8, value)
+	return fuse_data
 
 def main() -> None:
 	cpu_key = XeCryptCpuKeyGen()
@@ -22,7 +36,8 @@ def main() -> None:
 
 	# create fuse buffer 12 lines by 8 bytes
 	fuse_data = bytearray(12 * 8)
-	pack_into("8s", fuse_data, 0, bytes.fromhex("C0FFFFFFFFFFFFFF"))  # line #1
+	# ("8s", fuse_data, 0, bytes.fromhex("C0FFFFFFFFFFFFFF"))  # line #1
+	fuse_data = set_fuseline(fuse_data, 0, "C0FFFFFFFFFFFFFF")  # line #1
 	pack_into("1s", fuse_data, 0x38, b"\xF0")  # line #8
 
 	# read the KV
@@ -46,7 +61,11 @@ def main() -> None:
 		pack_into("2s", fuse_data, 0xE, bytes.fromhex("F0F0"))
 
 	# update CPU key in fuses
-	pack_into("8s8s8s8s", fuse_data, 0x18, cpu_key[:8], cpu_key[:8], cpu_key[8:16], cpu_key[8:16])
+	# pack_into("8s8s8s8s", fuse_data, 0x18, cpu_key[:8], cpu_key[:8], cpu_key[8:16], cpu_key[8:16])
+	fuse_data = set_fuseline(fuse_data, 3, cpu_key[:8])
+	fuse_data = set_fuseline(fuse_data, 4, cpu_key[:8])
+	fuse_data = set_fuseline(fuse_data, 5, cpu_key[8:16])
+	fuse_data = set_fuseline(fuse_data, 6, cpu_key[8:16])
 
 	# setup fuse path
 	fuse_path = Path("Output/Zero/fuses.bin")

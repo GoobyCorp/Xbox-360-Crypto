@@ -10,8 +10,8 @@ from build_lib import *
 def main() -> None:
 	SD_PRV_KEY = Path("Keys/SB_prv.bin").read_bytes()
 
-	sd_data = bytearray(Path("Output/Winchester/sd_17489.bin").read_bytes())
-	se_data = bytearray(Path("Output/Winchester/hypervisor.bin").read_bytes() + Path("Output/Winchester/kernel.exe").read_bytes())
+	sd_data = bytearray(Path("Output/Extracted/Winchester Stress Kit/sd_17489.bin").read_bytes())
+	se_data = bytearray(Path("Output/Extracted/Winchester Stress Kit/hypervisor.bin").read_bytes() + Path("Output/Extracted/Winchester Stress Kit/kernel.exe").read_bytes())
 
 	# sd_data = apply_patches(sd_data, Path("C://Users/John/Desktop/patch.bin").read_bytes())
 
@@ -56,11 +56,11 @@ def main() -> None:
 	pack_into("16x", sd_data, 0x10)
 	pack_into("16x", se_data, 0x10)
 	# write the SD and SE
-	Path("Output/Zero/sd_17489.bin").write_bytes(sd_data)
-	Path("Output/Zero/se_17559.bin").write_bytes(se_data)
+	Path("Output/Zero/SD_17489.bin").write_bytes(sd_data)
+	Path("Output/Zero/SE_17559.bin").write_bytes(se_data)
 	# output XeBuild checksums
-	print(f"winchesterbl_rgl/sd_17489.bin,{crc32(sd_data[:sd_len_nopad]):08x}")
-	print(f"winchesterbl_rgl/se_17559.bin,{crc32(se_data[:se_len_nopad]):08x}")
+	print(f"winchesterbl_rgl/SD_17489.bin,{crc32(sd_data[:sd_len_nopad]):08x}")
+	print(f"winchesterbl_rgl/SE_17559.bin,{crc32(se_data[:se_len_nopad]):08x}")
 
 if __name__ == "__main__":
 	main()

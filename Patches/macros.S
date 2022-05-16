@@ -9,6 +9,29 @@
 
 .set KBASE, 0x80000000
 
+# creates a bootloader header automatically calculating the size and entry point
+.macro MAKEBLHDR Magic Build QFE Flags Padding
+	.set hdrSize, (19f - 10f)
+	.set blSize, (hdrSize + (9f - 0f))
+	10:
+		.short \Magic
+		.short \Build
+		.short \QFE
+		.short \Flags
+		.long  hdrSize
+		.long  blSize
+		# blank nonce
+		.space 0x10
+		# blank signature
+		.space 0x100
+		# add padding
+		.if(\Padding)
+			.set Padding, \Padding
+			.space Padding
+		.endif
+	19:
+.endm
+
 #;Arg0 is address, Arg1 is label used for handler
 .macro MAKEPATCH PAddress 
 	.if(\PAddress)
