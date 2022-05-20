@@ -16,7 +16,7 @@ def main() -> None:
 	# sd_data = apply_patches(sd_data, Path("C://Users/John/Desktop/patch.bin").read_bytes())
 
 	# apply patches
-	se_data = apply_patches(se_data, Path("Output/Zero/HVK.bin").read_bytes())
+	se_data = apply_patches(se_data, Path("Output/RGL.bin").read_bytes())
 	# compress SE
 	# se_data = bytearray(compress_se(se_data))
 	se_data = bytearray(0x20) + se_data
@@ -56,8 +56,8 @@ def main() -> None:
 	pack_into("16x", sd_data, 0x10)
 	pack_into("16x", se_data, 0x10)
 	# write the SD and SE
-	Path("Output/Zero/SD_17489.bin").write_bytes(sd_data)
-	Path("Output/Zero/SE_17559.bin").write_bytes(se_data)
+	Path("Output/SD_17489.bin").write_bytes(sd_data)
+	Path("Output/SE_17559.bin").write_bytes(se_data)
 	# output XeBuild checksums
 	print(f"winchesterbl_rgl/SD_17489.bin,{crc32(sd_data[:sd_len_nopad]):08x}")
 	print(f"winchesterbl_rgl/SE_17559.bin,{crc32(se_data[:se_len_nopad]):08x}")
