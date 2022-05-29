@@ -5,6 +5,7 @@ __description__ = "A script to extract and build shadowboots"
 __platforms__ = ["Windows"]
 __thanks__ = ["tydye81", "c0z", "golden"]
 
+import re
 from io import BytesIO
 from json import loads
 from pathlib import Path
@@ -119,6 +120,9 @@ class ShadowbootImage:
 	# SMC
 	console_type = None
 	smc_version = None
+	# misc.
+	is_retal = False
+	is_testkit = False
 
 	def __init__(self) -> None:
 		self.reset()
@@ -219,6 +223,8 @@ class ShadowbootImage:
 		self.se_build = None
 		self.kernel_version = None
 		self.hypervisor_version = None
+		self.is_retail = False
+		self.is_testkit = False
 
 	def read_header(self, header_type):
 		return header_type.from_buffer_copy(self._stream.read(sizeof(header_type)))
@@ -231,7 +237,7 @@ class ShadowbootImage:
 			# all of them are the same
 			hdr = BLHeader(self._stream.read(0x20))
 			bl_name = hdr.magic.decode("UTF8")
-			self.img_map[bl_name] = {"offset": self._stream.tell() - hdr.header_size, "size": hdr.size, "header": hdr}
+			self.img_map[bl_name] = {"offset": self._stream.tell() - hdr.header_size, "size": hdr.size + 0xF & 0xFFFFFFF0, "header": hdr}
 			# derive keys
 			if bl_name == "SB":
 				self.img_map[bl_name]["key"] = XeCryptHmacSha(XECRYPT_1BL_KEY, hdr.nonce)[:0x10]
@@ -330,6 +336,14 @@ class ShadowbootImage:
 		end_loc = self.sd_data.find(bl_end) + len(bl_end)
 		if end_loc == -1 or end_loc == len(self.sd_data):  # no patches
 			return
+		#bl_end = bytes.fromhex("386000004E8000200000000000000000")
+		#end_loc = self.sd_data.find(bl_end) + len(bl_end)
+		#if end_loc == -1 or end_loc == len(self.sd_data):  # no patches
+		#	return
+		# if not self.sd_data.endswith(bytes.fromhex("FFFFFFFF")):  # patches not available
+		# 	return
+
+		print("Patches found!")
 		with StreamIO(self.sd_data, Endian.BIG) as sio:
 			sio.seek(end_loc)  # not static by any means
 			patch_loader = sio.read_ubytes(0x40)  # the loader code for patches
@@ -380,8 +394,10 @@ class ShadowbootImage:
 		self.sc_build = self.img_map["SC"]["header"]["build"]
 		self.sd_build = self.img_map["SD"]["header"]["build"]
 		self.se_build = self.img_map["SE"]["header"]["build"]
-		(self.hypervisor_version,) = unpack_from(">H", self.hypervisor_data, 0x10)
+		(self.hypervisor_version,) = unpack_from(">H", self.hypervisor_data, 0x2)
 		self.kernel_version = self.se_build
+		self.is_retail = self.hypervisor_data[0] == 0x4E
+		self.is_testkit = bytes.fromhex("5C746573746B69745C") in self.kernel_data
 
 	def check_signature_sb_2bl(self) -> bool:
 		sb_hash = XeCryptRotSumSha(self.sb_data[:0x10] + self.sb_data[0x140:])  # skips the nonce and signature
@@ -404,7 +420,7 @@ class ShadowbootImage:
 		return True
 
 	def check_hash_se_5bl(self) -> bool:
-		if self.sd_digest != b"\x00" * len(self.se_digest):
+		if self.se_digest != b"\x00" * len(self.se_digest):
 			return XeCryptRotSumSha(self.se_data[:0x10] + self.se_data[0x20:]) == self.se_digest
 		return True
 
@@ -418,15 +434,12 @@ class ShadowbootImage:
 		print(f"HV Version:     {self.hypervisor_version}")
 		print(f"Kernel Version: {self.kernel_version}")
 
-		is_retail = self.hypervisor_data[0] == 0x4E
-		is_testkit = bytes.fromhex("5C746573746B69745C") in self.kernel_data
-
-		if is_retail:
+		if self.is_retail:
 			print("Main Menu:      Dashboard")
 		else:
 			print("Main Menu:      XShell")
 
-		if is_testkit:
+		if self.is_testkit:
 			print("Hardware:       Test Kit")
 		else:
 			print("Hardware:       Development Kit")
@@ -467,6 +480,11 @@ def main() -> None:
 	info_parser.add_argument("input", type=lambda x: path_type(info_parser, x), help="The input path")
 	info_parser.add_argument("--flash", action="store_true", help="Parse a flash image instead of a shadowboot")
 	info_parser.add_argument("--nochecks", action="store_true", help="Perform shadowboot parsing without integrity checks")
+
+	split_parser = subparsers.add_parser("split")
+	split_parser.add_argument("input", type=lambda x: path_type(info_parser, x), help="The input path")
+	split_parser.add_argument("output", type=lambda x: path_type(extract_parser, x), help="The output path")
+	split_parser.add_argument("--nochecks", action="store_true", help="Perform shadowboot parsing without integrity checks")
 
 	test_parser = subparsers.add_parser("test")
 	test_parser.add_argument("input", type=lambda x: path_type(test_parser, x), help="The input path")
@@ -602,7 +620,7 @@ def main() -> None:
 			se_data = decompress_se(se_file.read_bytes())
 		elif base_img_available:
 			print("Using base image HV/kernel...")
-			se_data = base_img.se_data
+			se_data = base_img.hypervisor_data + base_img.kernel_data
 		else:
 			raise Exception("No HV/kernel pair, SE, or fallback image was provided!")
 
@@ -629,7 +647,7 @@ def main() -> None:
 			print("Using custom copyright...")
 			copyright = b"\xA9 " + build_manifest["build"]["copyright"].encode("UTF8")
 		else:
-			copyright = b"\xA9 2004-2021 Microsoft Corporation. All rights reserved"
+			copyright = b"\xA9 2005-2022 Microsoft Corporation. All rights reserved"
 
 		if build_manifest["build"]["version"] > 0:
 			print("Using custom build version...")
@@ -670,12 +688,19 @@ def main() -> None:
 		kv_offset = len(new_img)
 		if build_manifest["options"]["use_kv"]:
 			#if (BUILD_DIR / "KV_dec.bin").is_file():
-			nand_header.kv_offset = kv_offset
-			cpu_key = bytes.fromhex(build_manifest["build"]["cpu_key"])
-			print(f"Encrypting and writing KV_dec.bin @ 0x{kv_offset:04X}...")
-			kv_data = XeCryptKeyVaultEncrypt(cpu_key, kv_file.read_bytes())
-			nand_header.kv_length = len(kv_data)
-			new_img += kv_data
+			if kv_file.name.lower().endswith("_dec.bin"):
+				nand_header.kv_offset = kv_offset
+				cpu_key = bytes.fromhex(build_manifest["build"]["cpu_key"])
+				print(f"Encrypting and writing KV_dec.bin @ 0x{kv_offset:04X}...")
+				kv_data = XeCryptKeyVaultEncrypt(cpu_key, kv_file.read_bytes())
+				nand_header.kv_length = len(kv_data)
+				new_img += kv_data
+			elif kv_file.name.lower().endswith("_enc.bin"):
+				nand_header.kv_offset = kv_offset
+				print(f"Writing KV_enc.bin @ 0x{kv_offset:04X}...")
+				kv_data = kv_file.read_bytes()
+				nand_header.kv_length = len(kv_data)
+				new_img += kv_data
 			#elif (BUILD_DIR / "KV_enc.bin").is_file():
 			#	print(f"Writing encrypted KV_enc.bin @ 0x{kv_offset:04X}...")
 			#	nand_header.kv_offset = kv_offset
@@ -691,10 +716,12 @@ def main() -> None:
 		print(f"Encrypting and writing SB @ 0x{sb_offset:04X}...")
 		nonce_sb = bytearray(sb_data)
 		pack_into("<16s", nonce_sb, 0x10, new_sb_nonce)
-		# if test_kit_compile:
-		# 	print("Compiling for test kit, SB signature will be broken!")
-		# 	pack_into("<4s", nonce_sb, 0x1348, b"\x48\x00\x01\x94")
-		# 	pack_into("<4s", nonce_sb, 0x1E10, b"\x4E\x80\x00\x20")
+
+		if build_manifest["options"]["test_kit"]:
+			print("Compiling for test kit, SB signature will be broken!")
+			assert nonce_sb[0x1348:0x1348 + 4] == bytes.fromhex("419A0014"), "Original bytes mismatch!"
+			pack_into("<4s", nonce_sb, 0x1348, bytes.fromhex("48000194"))
+
 		sb_enc = encrypt_bl(new_sb_key, nonce_sb)
 		new_img += sb_enc
 		sc_offset = len(new_img)
@@ -717,7 +744,8 @@ def main() -> None:
 		# write the nonce into the image
 		pack_into("<16s", se_com, 0x10, new_se_nonce)
 
-		se_com += (b"\x00" * calc_pad_size(len(se_com)))
+		assert len(se_com) == unpack_from(">I", se_com, 12)[0], "Invalid SE size"
+		se_com += (b"\x00" * calc_bldr_pad_size(len(se_com)))
 
 		print("Hashing SE...")
 		se_hash = XeCryptRotSumSha(se_com[:0x10] + se_com[0x20:])
@@ -760,6 +788,10 @@ def main() -> None:
 		print("Writing NAND header @ 0x0...")
 		pack_into(f"<{sizeof(nand_header)}s", new_img, 0, bytes(nand_header))
 
+		# padding image to 0x1000
+		# new_img += (b"\x00" * (0xD0000 - len(new_img)))
+		new_img += (b"\x00" * calc_pad_size(len(new_img), 0x1000))
+
 		# write the output image
 		print("Writing output image...")
 		args.output.write_bytes(new_img)
@@ -770,12 +802,11 @@ def main() -> None:
 			red_size = SHADOWBOOT_SIZE - len(new_img)
 			print(f"Image reduced by {red_size} (0x{red_size:04X}) bytes!")
 
-		# sanity checks on new image
-		# if test_kit_compile:
-		# 	print("Image is test kit compiled, verification is disabled!")
-		# else:
-		ShadowbootImage.parse(new_img)
-		print("Modified image verified!")
+		if not build_manifest["options"]["test_kit"]:
+			ShadowbootImage.parse(new_img)
+			print("Modified image verified!")
+		else:
+			print("Image is test kit compiled, verification is disabled!")
 
 		print(f"Final image location: \"{str(args.output.absolute())}\"")
 	elif args.command == "extract":
@@ -839,11 +870,23 @@ def main() -> None:
 			img = ShadowbootImage.parse(args.input.read_bytes(), not args.nochecks)
 
 		img.print_info()
+	elif args.command == "split":
+		image_data = args.input.read_bytes()
+		IMAGE_EXP = re.compile(rb"Microsoft Corporation\. All rights reserved")
+		idxs = [m.start() - 28 for m in IMAGE_EXP.finditer(image_data)]
+		for i in range(0, len(idxs)):
+			if idxs[i] == idxs[-1]:  # last entry
+				data = image_data[idxs[i]:]
+			else:  # other entries
+				data = image_data[idxs[i]:idxs[i + 1]]
+			img = ShadowbootImage.parse(data, not args.nochecks)
+			if img.is_testkit and not img.is_retail and img.kernel_version == 12387 and img.hypervisor_version == 12387 and img.console_type == "Jasper":
+				# Path("Output/Extracted/Test Kit/hypervisor.bin").write_bytes(img.hypervisor_data)
+				Path("Output/Extracted/Test Kit/xboxromtw2d.bin").write_bytes(data)
+				print("Found!")
+				break
+			# (args.output / f"xboxrom_update_{i}.bin").write_bytes(data)
 	elif args.command == "test":
-		#sb = ShadowbootImage(read_file("C://Users/John/Desktop/xboxrom_13146_patched.bin"), False)
-		#write_file("C://Users/John/Desktop/hv.bin", sb.hypervisor_data)
-		#write_file("C://Users/John/Desktop/kernel.exe", sb.kernel_data)
-		#exit(0)
 		pass
 
 if __name__ == "__main__":

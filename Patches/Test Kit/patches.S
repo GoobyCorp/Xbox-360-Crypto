@@ -9,7 +9,7 @@
 #============================================================================
 #   Shadowboot signature patch
 #============================================================================
-    MAKEPATCH 0x0000D9B0
+    MAKEPATCH 0x0000D994
 0:
     li      %r3, 1
 9:
@@ -22,7 +22,7 @@
 #       disabling encryption
 #     - 0x0007 clears bits NoExec:DataPage:Readonly of RPN
 #============================================================================
-    MAKEPATCH 0x000015A8
+    MAKEPATCH 0x00015A8
     .set PatchTlbRpn, PatchAddr
 0:
     li      %r4, 0x0007             # removes all page protection

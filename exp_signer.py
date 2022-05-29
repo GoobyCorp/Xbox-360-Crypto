@@ -19,7 +19,8 @@ class ExpansionMagic(IntEnum):
 
 def sign_exp(in_file: str, out_file: str = None, key_file: str = "Keys/HVX_prv.bin", exp_magic: ExpansionMagic = ExpansionMagic.HXPR, exp_id: int = 0x48565050, encrypt: bool = True):
 	cpu_key = b""
-	prv_key = read_file(key_file)
+	# prv_key = read_file(key_file)
+	prv_key = PY_XECRYPT_RSA_KEY(read_file(key_file))
 	payload = read_file(in_file)
 	exp_id = exp_id
 	exp_typ = int(exp_magic)
@@ -56,16 +57,17 @@ def sign_exp(in_file: str, out_file: str = None, key_file: str = "Keys/HVX_prv.b
 	pack_into("<20s", exp_final, 0xC, b_hash)
 
 	# write the expansion signature
-	if exp_typ in [ExpansionMagic.HXPR, ExpansionMagic.SIGM]:
+	if exp_typ == ExpansionMagic.HXPR:
 		b_hash = XeCryptRotSumSha(exp_final[:0x30])
-		sig = XeCryptBnQwBeSigCreate(b_hash, EXP_SALT, prv_key)
-		sig = XeCryptBnQwNeRsaPrvCrypt(sig, prv_key)
+		sig = prv_key.sig_create(b_hash, EXP_SALT)
+	elif exp_typ == ExpansionMagic.SIGM:
+		b_hash = XeCryptRotSumSha(exp_final[:0x30])
+		sig = prv_key.pkcs1_sig_create(b_hash)
 	elif exp_typ in [ExpansionMagic.HXPC, ExpansionMagic.SIGC]:
 		assert XeCryptCpuKeyValid(cpu_key), "A valid CPU is required for HXPC/SIGC"
 		b_hash = XeCryptHmacSha(cpu_key, exp_final[:0x30])
 		# sig = XeKeysPkcs1Create(b_hash, prv_key)
-		sig = XeCryptBnQwBeSigCreate(b_hash, EXP_SALT, prv_key)
-		sig = XeCryptBnQwNeRsaPrvCrypt(sig, prv_key)
+		sig =  prv_key.sig_create(b_hash, EXP_SALT)
 	else:
 		raise Exception("Invalid expansion magic")
 
@@ -76,7 +78,7 @@ def sign_exp(in_file: str, out_file: str = None, key_file: str = "Keys/HVX_prv.b
 	exp_final = exp_final[:0x170 + payload_len_pad]
 
 	# write the encrypted expansion
-	if exp_typ in [ExpansionMagic.HXPR, ExpansionMagic.HXPC]:
+	if exp_typ == ExpansionMagic.HXPR:
 		if encrypt:  # encrypt everything after the signature
 			exp_iv = urandom(0x10)
 			pack_into("16s", exp_final, 0x20, exp_iv)

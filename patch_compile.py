@@ -13,7 +13,8 @@ def main() -> None:
 	# assemble_patch("Patches/Zero/SD/sd_17489_patches.S", "Output/Zero/xell.bin", PATCH_DIR)
 	# assemble_patch("Patches/Spoofy.S", "Output/Spoofy.bin", PATCH_DIR)
 
-	# assemble_patch("Patches/NonZero/HVK/17559-dev/RGLoader-dev.S", "Output/RGL.bin", PATCH_DIR)
+	# assemble_patch("Patches/Test Kit/patches.S", "Output/testkit.bin", PATCH_DIR)
+	assemble_patch("Patches/NonZero/HVK/17559-dev/RGLoader-dev.S", "Output/RGL.bin", PATCH_DIR)
 
 	# assemble_patch("Patches/remap_bootanim_17559.S", "Output/remap_bootanim_17559.bin", PATCH_DIR)
 	# assemble_patch("Patches/RGH3/rgh3_bl.S", "Output/rgh3_bl.bin", PATCH_DIR)

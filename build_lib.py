@@ -118,6 +118,9 @@ def calc_patch_size(patch_data: Union[bytes, bytearray], size: int) -> int:
 def calc_pad_size(size: int, bounds: int = 16) -> int:
 	return (bounds - (size % bounds)) % bounds
 
+def calc_bldr_pad_size(size: int) -> int:
+	return (size + 0xF & 0xFFFFFFF0) - size
+
 __all__ = [
 	"assemble_patch",
 	"decompress_se",
@@ -128,5 +131,6 @@ __all__ = [
 	"apply_jump_sd_4bl",
 	"apply_patches",
 	"calc_patch_size",
-	"calc_pad_size"
+	"calc_pad_size",
+	"calc_bldr_pad_size"
 ]

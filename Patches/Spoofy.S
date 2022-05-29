@@ -17,6 +17,8 @@ _start:
 	beq     PeekQWORD
 	cmpwi   r31, 0xA
 	beq     PeekSPR
+	cmpwi	r31, 0xC
+	beq		HvExecute
 	
 	# Check to see if its Poke
 	cmpwi   r31, 0x5
@@ -258,6 +260,23 @@ PokeDWORD:
 PokeQWORD:
 	std     r6, 0(r5)
 	b       PokeFlush
+
+# Copy dest=r5 src = r6 cnt = r7
+HvExecute:
+	mtlr	r5
+	mtctr	r7
+lcopyloop:
+	lwz		r4, 0(r6)
+	stw		r4, 0(r5)
+	dcbst	r0, r5
+	icbi	r0, r5
+	sync    0
+	isync
+	addi    r5, r5, 4
+	addi    r6, r6, 4
+	bdnz    lcopyloop
+	blr
+	b		Done
 
 PokeBytes:
 	lbz     r31, 0(r6)
