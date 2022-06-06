@@ -23,8 +23,8 @@ from Crypto.Signature import PKCS1_v1_5
 
 XMACS_RSA_PUB_2048 = None
 
-XEAS_REALM = "xeas.gtm.xboxlive.com"
-XETGS_REALM = "xetgs.gtm.xboxlive.com"
+XEAS_REALM = "xeas.xboxlive.com"
+XETGS_REALM = "xetgs.xboxlive.com"
 SERVER_PORT = 88
 BUFF_SIZE = 4096
 
