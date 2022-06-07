@@ -158,6 +158,9 @@ def is_kv_banned(data: Union[bytes, bytearray]) -> bool:
 		# consoleCertSize - abConsolePubKeyModulus
 		src_arr_0 = XeCryptSha(sio.read_bytes_at(0x9C8, 0xA8))
 
+	logging.info("Serial #:   " + serial_num.decode("ASCII"))
+	logging.info("Console ID: " + console_id.hex().upper())
+
 	xmacs_logon_key = get_xmacs_logon_key(serial_num, console_cert, console_prv_key, console_id)
 
 	client_name = compute_client_name(console_id)
@@ -252,8 +255,8 @@ def main() -> None:
 	parser = ArgumentParser(description=__description__)
 	subparsers = parser.add_subparsers(dest="command")
 
-	check_parser = subparsers.add_parser("check")
-	check_parser.add_argument("path", type=str, help="The KV file to test")
+	check_parser = subparsers.add_parser("single")
+	check_parser.add_argument("path", type=str, help="The KV file to check")
 
 	bulk_parser = subparsers.add_parser("bulk")
 	bulk_parser.add_argument("path", type=str, help="The directory to check for KV's")
@@ -263,18 +266,17 @@ def main() -> None:
 	XMACS_RSA_PUB_2048 = read_file("Keys/XMACS_pub.bin")
 	assert crc32(XMACS_RSA_PUB_2048) == 0xE4F01473, "Invalid XMACS public key"
 
-	if args.command == "check":
+	if args.command == "single":
 		if is_kv_banned(read_file(args.path)):
-			print("Banned")
+			logging.info("Banned")
 		else:
-			print("Unbanned")
+			logging.info("Unbanned")
 	elif args.command == "bulk":
 		for kv_path in find_kvs(args.path):
 			if is_kv_banned(read_file(kv_path)):
-				print("Banned")
+				logging.info("Banned")
 			else:
-				print("Unbanned")
-	print("Done!")
+				logging.info("Unbanned")
 
 if __name__ == "__main__":
 	main()

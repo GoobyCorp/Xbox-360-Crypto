@@ -1,4 +1,6 @@
 /*.bin
+/*.log
+/*.txt
 /test.py
 
 /map.txt
