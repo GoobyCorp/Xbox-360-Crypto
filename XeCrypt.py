@@ -1032,6 +1032,15 @@ class PY_XECRYPT_RSA_KEY:
 
 	to_pycryptodome = to_pycrypto
 
+	@staticmethod
+	def new(bits: int = 2048, exp: int = 0x10001):
+		(pub_key, prv_key) = XeCryptBnQwNeRsaKeyGen(bits, exp)
+		return PY_XECRYPT_RSA_KEY(prv_key)
+
+	@property
+	def public_key(self):
+		return PY_XECRYPT_RSA_KEY(self.key_bytes[:globals()[f"XECRYPT_RSAPUB_{self.size_in_bits}_SIZE"]])
+
 	def c_struct(self):
 		return self.key_struct
 
@@ -1087,22 +1096,22 @@ class PY_XECRYPT_RSA_KEY:
 	def u(self) -> int:
 		return int.from_bytes(bswap64(bytes(self.key_struct.cr)), "little", signed=False)
 
-	def sig_verify(self, sig: Union[bytes, bytearray], hash: Union[bytes, bytearray], salt: Union[bytes, bytearray]) -> bool:
-		pub_key = self.key_bytes[:(self.cqw * 8) + 0x10]
-		return XeCryptBnQwBeSigVerify(sig, hash, salt, pub_key)
-
-	def pkcs1_sig_verify(self, sig: Union[bytes, bytearray], hash: Union[bytes, bytearray]) -> bool:
-		pub_key = self.key_bytes[:(self.cqw * 8) + 0x10]
-		return XeKeysPkcs1Verify(sig, hash, pub_key)
-
 	def sig_create(self, hash: Union[bytes, bytearray], salt: Union[bytes, bytearray]) -> bytes:
 		assert self.is_private_key, "Key isn't a private key!"
 		sig = XeCryptBnQwBeSigCreate(hash, salt, self.key_bytes)
 		return XeCryptBnQwNeRsaPrvCrypt(sig, self.key_bytes)
 
+	def sig_verify(self, sig: Union[bytes, bytearray], hash: Union[bytes, bytearray], salt: Union[bytes, bytearray]) -> bool:
+		pub_key = self.key_bytes[:(self.cqw * 8) + 0x10]
+		return XeCryptBnQwBeSigVerify(sig, hash, salt, pub_key)
+
 	def pkcs1_sig_create(self, hash: Union[bytes, bytearray]) -> bytes:
 		assert self.is_private_key, "Key isn't a private key!"
 		return XeKeysPkcs1Create(hash, self.key_bytes)
+
+	def pkcs1_sig_verify(self, sig: Union[bytes, bytearray], hash: Union[bytes, bytearray]) -> bool:
+		pub_key = self.key_bytes[:(self.cqw * 8) + 0x10]
+		return XeKeysPkcs1Verify(sig, hash, pub_key)
 
 # constants
 __all__ = [
