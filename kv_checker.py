@@ -6,12 +6,13 @@
 __description__ = "A script to check if Xbox 360 keyvaults are banned or not"
 
 import socket
+import logging
 from os import urandom
 from typing import Union
 from binascii import crc32
 from datetime import datetime
+from argparse import ArgumentParser
 from struct import pack_into, unpack_from
-from argparse import ArgumentParser, FileType
 
 from XeCrypt import *
 from StreamIO import *
@@ -137,17 +138,19 @@ def get_xmacs_logon_key(serial_num: bytes, console_cert: bytes, console_prv_key:
 	src_arr_5 = HMAC_RC4_decrypt(compute_kdc_nonce(rand_key), array_8, 1203)
 	return src_arr_5[76:76 + 16]
 
-def main() -> None:
-	global XMACS_RSA_PUB_2048
+def find_kvs(path: str) -> list[str]:
+	import os
 
-	parser = ArgumentParser(description=__description__)
-	parser.add_argument("input", type=FileType("rb"), help="The KV file to test")
-	args = parser.parse_args()
+	kvs = []
+	for root, dirs, files in os.walk(path):
+		for file in files:
+			path = os.path.join(root, file)
+			if file.endswith(".bin") and os.path.getsize(path) == 0x4000:
+				kvs.append(path)
+	return kvs
 
-	XMACS_RSA_PUB_2048 = read_file("Keys/XMACS_pub.bin")
-	assert crc32(XMACS_RSA_PUB_2048) == 0xE4F01473, "Invalid XMACS public key"
-
-	with StreamIO(args.input, Endian.BIG) as sio:
+def is_kv_banned(data: Union[bytes, bytearray]) -> bool:
+	with StreamIO(data, Endian.BIG) as sio:
 		serial_num = sio.read_bytes_at(0xB0, 12)
 		console_cert = sio.read_bytes_at(0x9C8, 0x1A8)
 		console_prv_key = sio.read_bytes_at(0x298, 0x1D0)
@@ -158,8 +161,8 @@ def main() -> None:
 	xmacs_logon_key = get_xmacs_logon_key(serial_num, console_cert, console_prv_key, console_id)
 
 	client_name = compute_client_name(console_id)
-	print("Attempting logon for \"" + client_name.decode("ASCII") + "\"...")
-	print("Creating Kerberos AS-REQ...")
+	logging.info("Attempting logon for \"" + client_name.decode("ASCII") + "\"...")
+	logging.info("Creating Kerberos AS-REQ...")
 
 	ts = generate_timestamp()
 	with StreamIO(read_file("bin/KV/apReq1.bin"), Endian.BIG) as sio:
@@ -174,11 +177,11 @@ def main() -> None:
 	with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
 		sock.connect((XEAS_REALM, SERVER_PORT))
 		sock.send(ap_req_1)
-		print("Sending Kerberos AS-REQ...")
+		logging.info("Sending Kerberos AS-REQ...")
 		ap_res_1 = sock.recv(BUFF_SIZE)
 
-	print("AS replied wanting pre-auth data...")
-	print("Creating new Kerberos AS-REQ...")
+	logging.info("AS replied wanting pre-auth data...")
+	logging.info("Creating new Kerberos AS-REQ...")
 	array_5 = ap_res_1[-16:]
 
 	ts = generate_timestamp()
@@ -195,17 +198,17 @@ def main() -> None:
 	with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
 		sock.connect((XEAS_REALM, SERVER_PORT))
 		sock.send(ap_req_2)
-		print("Sending Kerberos AS-REQ...")
+		logging.info("Sending Kerberos AS-REQ...")
 		ap_res_2 = sock.recv(BUFF_SIZE)
 
-	print("Got AS-REP...")
-	print("Decrypting our session key...")
-	print("Creating Kerberos TGS-REQ...")
+	logging.info("Got AS-REP...")
+	logging.info("Decrypting our session key...")
+	logging.info("Creating Kerberos TGS-REQ...")
 	array_9 = ap_res_2[-210:]
 	array_10 = HMAC_RC4_decrypt(xmacs_logon_key, array_9, 8)
 	array_11 = array_10[27:27 + 16]
 
-	print("Setting TGS ticket...")
+	logging.info("Setting TGS ticket...")
 	array_12 = ap_res_2[168:168 + 345]
 
 	tgs_req = bytearray(read_file("bin/KV/TGSREQ.bin"))
@@ -224,22 +227,54 @@ def main() -> None:
 	pack_into("<150s", tgs_req, 55, HMAC_RC4_encrypt(key, service_req, 1201))
 	array_16 = ap_req_2[116:116 + 66]
 	pack_into("<82s", tgs_req, 221, get_title_auth_data(array_11, array_16))
-	print("Sending our TGS-REQ...")
+	logging.log(logging.INFO, "Sending our TGS-REQ...")
 	with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sock:
 		sock.connect((XETGS_REALM, SERVER_PORT))
 		sock.send(tgs_req)
 		tgs_res = sock.recv(BUFF_SIZE)
 
-	print("Got TGS-REP...")
-	print("Decrypting logon status...")
+	logging.info("Got TGS-REP...")
+	logging.info("Decrypting logon status...")
 	array_18 = tgs_res[50:50 + 84]
 	value = HMAC_RC4_decrypt(key, array_18, 1202)
 	(logon_status_code,) = unpack_from("<I", value, 8)
-	print(f"Logon status: 0x{logon_status_code:04X}")
-	if logon_status_code != 0x8015190D:
-		print("Unbanned")
+	logging.info(f"Logon status: 0x{logon_status_code:04X}")
+	if logon_status_code == 0x8015190D:
+		return True
 	else:
-		print("Banned")
+		return False
+
+def main() -> None:
+	global XMACS_RSA_PUB_2048
+
+	logging.basicConfig(level=logging.INFO)
+
+	parser = ArgumentParser(description=__description__)
+	subparsers = parser.add_subparsers(dest="command")
+
+	check_parser = subparsers.add_parser("check")
+	check_parser.add_argument("path", type=str, help="The KV file to test")
+
+	bulk_parser = subparsers.add_parser("bulk")
+	bulk_parser.add_argument("path", type=str, help="The directory to check for KV's")
+
+	args = parser.parse_args()
+
+	XMACS_RSA_PUB_2048 = read_file("Keys/XMACS_pub.bin")
+	assert crc32(XMACS_RSA_PUB_2048) == 0xE4F01473, "Invalid XMACS public key"
+
+	if args.command == "check":
+		if is_kv_banned(read_file(args.path)):
+			print("Banned")
+		else:
+			print("Unbanned")
+	elif args.command == "bulk":
+		for kv_path in find_kvs(args.path):
+			if is_kv_banned(read_file(kv_path)):
+				print("Banned")
+			else:
+				print("Unbanned")
+	print("Done!")
 
 if __name__ == "__main__":
 	main()
