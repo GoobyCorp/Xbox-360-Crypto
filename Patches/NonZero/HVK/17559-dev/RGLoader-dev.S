@@ -346,7 +346,7 @@ _start:
 9:
 
 # ============================================================================
-#   	SataCdRomAuthenticationExSequence
+#   SataCdRomAuthenticationExSequence
 # ============================================================================
 	KMAKEPATCH 0x800C57D8
 0:

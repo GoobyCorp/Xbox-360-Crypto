@@ -19,6 +19,8 @@ _start:
 	beq     PeekSPR
 	cmpwi	r31, 0xC
 	beq		HvExecute
+	cmpwi   r31, 0xD
+	beq     PeekMSR
 	
 	# Check to see if its Poke
 	cmpwi   r31, 0x5
@@ -106,6 +108,10 @@ PeekBytesLoop:
 	bdnz    PeekBytesLoop
 	li      r3, 0
 	b       Done
+
+PeekMSR:
+	mfmsr r3
+	b     Done
 
 # don't clobber r5 (source) or r6 (dest)
 check_fix_address:

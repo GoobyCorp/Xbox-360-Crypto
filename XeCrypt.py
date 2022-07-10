@@ -139,7 +139,7 @@ HV_HEADER = BL_HEADER
 
 class XECRYPT_SIG(BigEndianStructure):
 	_fields_ = [
-		("aqwPad", (QWORD * 28)),
+		("aqwPad", (QWORD * 0x1C)),
 		("bOne", BYTE),
 		("abSalt", (BYTE * 0xA)),
 		("abHash", (BYTE * 0x14)),
@@ -667,22 +667,29 @@ def XeCryptBnQwBeSigFormat(sig: Union[bytes, bytearray], b_hash: Union[bytes, by
 	sig[0] &= 0x7F
 	return BnQwBeBufSwap(sig, 0x100 // 8)
 
-def XeCryptBnQwBeSigCreate(b_hash: Union[bytes, bytearray], salt: Union[bytes, bytearray], prv_key: Union[bytes, bytearray]) -> bytes:
-	(cqw,) = unpack(">I", prv_key[:calcsize("I")])
-	assert cqw in [0x10, 0x18, 0x20, 0x40], "Unsupported key size"
-
+def XeCryptBnQwBeSigCreate(b_hash: Union[bytes, bytearray], salt: Union[bytes, bytearray], prv_key: Union[bytes, bytearray]) -> Union[bytes, None]:
 	key = PY_XECRYPT_RSA_KEY(prv_key)
-	if cqw == 0x20:  # PXECRYPT_RSAPRV_2048
-		if key.e == 0x3 or key.e == 0x10001:
-			sig = XeCryptBnQwBeSigFormat((b"\x00" * (cqw * 8)), b_hash, salt)
-			if sig != bytes(key.key_struct.n):
-				x = int.from_bytes(bswap64(sig), "little", signed=False)
-				r = pow(2, (((key.e & 0xFFFFFFFF) - 1) << 11), key.n)
-				sig = (x * r) % key.n  # move to Montgomery domain
-				return bswap64(sig.to_bytes(cqw * 8, "little", signed=False))
+	if key.cqw != 0x20:  # PXECRYPT_RSAPRV_2048
+		return None
+
+	if key.e not in [0x3, 0x10001]:
+		return None
+
+	sig = XeCryptBnQwBeSigFormat((b"\x00" * (key.cqw * 8)), b_hash, salt)
+	if sig == bytes(key.key_struct.n):
+		return None
+
+	x = int.from_bytes(bswap64(sig), "little", signed=False)
+	r = pow(2, (((key.e & 0xFFFFFFFF) - 1) << 11), key.n)
+	sig = (x * r) % key.n  # move to Montgomery domain
+	return bswap64(sig.to_bytes(key.cqw * 8, "little", signed=False))
 
 def XeCryptBnQwBeSigVerify(sig: Union[bytes, bytearray], b_hash: Union[bytes, bytearray], salt: Union[bytes, bytearray], pub_key: Union[bytes, bytearray]) -> bool:
 	key = PY_XECRYPT_RSA_KEY(pub_key)
+
+	if key.cqw != 0x20:  # PXECRYPT_RSAPRV_2048
+		return False
+
 	mod_inv = key.mod_inv
 
 	sig_dec = sig

@@ -128,7 +128,7 @@ class ShadowbootImage:
 		self.reset()
 
 	@staticmethod
-	def parse(data: (bytes, bytearray), checks: bool = True):
+	def parse(data: (bytes, bytearray), checks: bool = True, patches: bool = True):
 		img = ShadowbootImage()
 
 		with BytesIO(data) as img._stream:
@@ -151,7 +151,8 @@ class ShadowbootImage:
 
 			img.parse_metadata()
 
-			img.parse_patches()
+			if patches:
+				img.parse_patches()
 
 			if checks:
 				if not img.check_signature_sb_2bl():
@@ -386,7 +387,9 @@ class ShadowbootImage:
 				"Jasper",
 				"Trinity",
 				"Corona",
-				"Winchester"
+				"Winchester",
+				"Unknown",
+				"Unknown"
 			][num >> 4 & 15]
 			self.smc_version = f"{num >> 4 & 15}.{num & 15} ({self.smc_data[257]}.{self.smc_data[258]})"
 		# (self.kernel_version,) = unpack_from(">H", self.kernel_data, 0x40C)
@@ -871,6 +874,8 @@ def main() -> None:
 
 		img.print_info()
 	elif args.command == "split":
+		# cabextract -p --filter "KERNEL/*" XDK_0.cab > images.bin
+
 		image_data = args.input.read_bytes()
 		IMAGE_EXP = re.compile(rb"Microsoft Corporation\. All rights reserved")
 		idxs = [m.start() - 28 for m in IMAGE_EXP.finditer(image_data)]
@@ -879,10 +884,10 @@ def main() -> None:
 				data = image_data[idxs[i]:]
 			else:  # other entries
 				data = image_data[idxs[i]:idxs[i + 1]]
-			img = ShadowbootImage.parse(data, not args.nochecks)
-			if img.is_testkit and not img.is_retail and img.kernel_version == 12387 and img.hypervisor_version == 12387 and img.console_type == "Jasper":
+			img = ShadowbootImage.parse(data, not args.nochecks, False)
+			if img.is_testkit and not img.is_retail and img.kernel_version == 17489 and img.hypervisor_version == 17489 and img.console_type == "Xenon":
 				# Path("Output/Extracted/Test Kit/hypervisor.bin").write_bytes(img.hypervisor_data)
-				Path("Output/Extracted/Test Kit/xboxromtw2d.bin").write_bytes(data)
+				Path("Output/Extracted/xboxromtw2d.bin").write_bytes(data)
 				print("Found!")
 				break
 			# (args.output / f"xboxrom_update_{i}.bin").write_bytes(data)

@@ -5,9 +5,12 @@
 
 __description__ = "A script to check if Xbox 360 keyvaults are banned or not"
 
+import os
 import socket
+import shutil
 import logging
 from os import urandom
+from pathlib import Path
 from typing import Union
 from binascii import crc32
 from datetime import datetime
@@ -139,8 +142,6 @@ def get_xmacs_logon_key(serial_num: bytes, console_cert: bytes, console_prv_key:
 	return src_arr_5[76:76 + 16]
 
 def find_kvs(path: str) -> list[str]:
-	import os
-
 	kvs = []
 	for root, dirs, files in os.walk(path):
 		for file in files:
@@ -256,27 +257,42 @@ def main() -> None:
 	subparsers = parser.add_subparsers(dest="command")
 
 	check_parser = subparsers.add_parser("single")
-	check_parser.add_argument("path", type=str, help="The KV file to check")
+	check_parser.add_argument("path", type=Path, help="The KV file to check")
 
 	bulk_parser = subparsers.add_parser("bulk")
-	bulk_parser.add_argument("path", type=str, help="The directory to check for KV's")
+	bulk_parser.add_argument("path", type=Path, help="The directory to check for KV's")
 
 	args = parser.parse_args()
 
 	XMACS_RSA_PUB_2048 = read_file("Keys/XMACS_pub.bin")
 	assert crc32(XMACS_RSA_PUB_2048) == 0xE4F01473, "Invalid XMACS public key"
 
+	# get absolute path
+	args.path = args.path.resolve()
+
 	if args.command == "single":
-		if is_kv_banned(read_file(args.path)):
+		logging.info(args.path)
+		kv_data = read_file(args.path)
+		if is_kv_banned(kv_data):
 			logging.info("Banned")
 		else:
 			logging.info("Unbanned")
+			kv_serial = kv_data[0xB0:0xB0 + 12].decode("ASCII")
+			if not (args.path.parents[0] / kv_serial).is_dir():
+				(args.path.parents[0] / kv_serial).mkdir()
+			shutil.copy(args.path, (args.path.parents[0] / kv_serial / "KV_dec.bin"))
 	elif args.command == "bulk":
 		for kv_path in find_kvs(args.path):
-			if is_kv_banned(read_file(kv_path)):
+			logging.info(kv_path)
+			kv_data = read_file(kv_path)
+			if is_kv_banned(kv_data):
 				logging.info("Banned")
 			else:
 				logging.info("Unbanned")
+				kv_serial = kv_data[0xB0:0xB0 + 12].decode("ASCII")
+				if not (args.path / kv_serial).is_dir():
+					(args.path / kv_serial).mkdir()
+				shutil.copy(kv_path, (args.path / kv_serial / "KV_dec.bin"))
 
 if __name__ == "__main__":
 	main()

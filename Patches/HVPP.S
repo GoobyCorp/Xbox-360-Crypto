@@ -21,6 +21,8 @@ _start:
 	beq		PeekSPR
 	cmpwi	r31, 0xC
 	beq		HvExecute
+	cmpwi   r31, 0xD
+	beq     PeekMSR
 	cmpwi	r31, 5
 	beq		PokeByte
 	cmpwi	r31, 6
@@ -93,6 +95,10 @@ PeekBytes:
 	bdnz	PeekBytes
 	li		r3, 0
 	b		Done
+
+PeekMSR:
+	mfmsr   r3
+	b       Done
 
 PokeByte:
 	stb		r6, 0(r5)
