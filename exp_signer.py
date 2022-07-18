@@ -19,6 +19,7 @@ class ExpansionMagic(IntEnum):
 
 def sign_exp(in_file: str, out_file: str = None, key_file: str = "Keys/HVX_prv.bin", exp_magic: ExpansionMagic = ExpansionMagic.HXPR, exp_id: int = 0x48565050, encrypt: bool = True):
 	cpu_key = b""
+
 	# prv_key = read_file(key_file)
 	prv_key = PY_XECRYPT_RSA_KEY(read_file(key_file))
 	payload = read_file(in_file)

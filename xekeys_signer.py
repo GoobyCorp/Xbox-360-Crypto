@@ -35,7 +35,7 @@ def main() -> None:
 	sig = XeCryptBnQwNeRsaPrvCrypt(sig, hvx_prv)
 	pack_into("<%ss" % (len(sig)), payload, 0x20, sig)
 	rc4_key = XeCryptHmacSha(XECRYPT_1BL_KEY, hvx_key)[:0x10]
-	enc_payload = XeCryptRc4Ecb(rc4_key, payload[0x20:])
+	enc_payload = XeCryptRc4.new(rc4_key).encrypt(payload[0x20:])
 	pack_into("<%ss" % (len(enc_payload)), payload, 0x20, enc_payload)
 
 	# write the signed payload to disk

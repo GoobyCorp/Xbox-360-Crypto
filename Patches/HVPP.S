@@ -116,7 +116,7 @@ PokeQWORD:
 	std		r6, 0(r5)
 	b		PokeFlush
 
-# Copy dest=r5 src = r6 cnt = r7
+# Copy dest = r5, src = r6, cnt = r7
 HvExecute:
 	mtlr	r5
 	mtctr	r7

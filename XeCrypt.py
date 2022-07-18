@@ -1018,6 +1018,8 @@ class PY_XECRYPT_RSA_KEY:
 		elif self.rsa_struct.cqw == 0x40 and len(self.key_bytes) == XECRYPT_RSAPRV_4096_SIZE:
 			self.is_private_key = True
 			self.key_struct = XECRYPT_RSAPRV_4096.from_buffer_copy(data)
+		else:
+			raise Exception("Invalid key data specified!")
 
 	def reset(self) -> None:
 		self.key_bytes = None
@@ -1027,6 +1029,9 @@ class PY_XECRYPT_RSA_KEY:
 
 	def __bytes__(self) -> bytes:
 		return self.key_bytes
+
+	def __len__(self) -> int:
+		return len(self.key_bytes)
 
 	def to_bytes(self) -> bytes:
 		return self.key_bytes

@@ -9,15 +9,16 @@ import re
 from io import BytesIO
 from json import loads
 from pathlib import Path
+from os.path import isfile
 from binascii import crc32
 from ctypes import sizeof, c_ubyte
 from argparse import ArgumentParser
 from struct import pack, pack_into, unpack_from
-from os.path import abspath, isdir, isfile, join
 
 from XeCrypt import *
 from StreamIO import *
 from build_lib import *
+from keystore import load_and_verify_1bl_pub, load_and_verify_sb_prv
 
 # constants
 BIN_DIR = "bin"
@@ -35,8 +36,8 @@ SMC_CONFIG_SIZE = 280
 SHADOWBOOT_SIZE = 0xD4000
 
 # keys
-ONE_BL_KEY = None
-SB_PRV_KEY = None
+ONE_BL_KEY: PY_XECRYPT_RSA_KEY = None
+SB_PRV_KEY: PY_XECRYPT_RSA_KEY = None
 
 def checksum_file(filename: str) -> int:
 	cksm = 0
@@ -128,7 +129,7 @@ class ShadowbootImage:
 		self.reset()
 
 	@staticmethod
-	def parse(data: (bytes, bytearray), checks: bool = True, patches: bool = True):
+	def parse(data: (bytes, bytearray), perform_checks: bool = True, parse_patches: bool = True):
 		img = ShadowbootImage()
 
 		with BytesIO(data) as img._stream:
@@ -137,7 +138,7 @@ class ShadowbootImage:
 			img.map_shadowboot()
 
 			img.parse_smc()
-			# img.parse_smc_config()
+			img.parse_smc_config()
 			img.parse_keyvault()
 
 			img.parse_sb_2bl()
@@ -151,10 +152,10 @@ class ShadowbootImage:
 
 			img.parse_metadata()
 
-			if patches:
+			if parse_patches:
 				img.parse_patches()
 
-			if checks:
+			if perform_checks:
 				if not img.check_signature_sb_2bl():
 					raise Exception("Invalid SB signature")
 				if not img.check_signature_sc_3bl():
@@ -344,7 +345,7 @@ class ShadowbootImage:
 		# if not self.sd_data.endswith(bytes.fromhex("FFFFFFFF")):  # patches not available
 		# 	return
 
-		print("Patches found!")
+		# print("Patches found!")
 		with StreamIO(self.sd_data, Endian.BIG) as sio:
 			sio.seek(end_loc)  # not static by any means
 			patch_loader = sio.read_ubytes(0x40)  # the loader code for patches
@@ -363,7 +364,7 @@ class ShadowbootImage:
 	def parse_metadata(self) -> None:
 		# SB
 		self.sb_sig = self.sb_data[64:64 + 256]
-		self.sb_pub_key = self.sb_data[616:616 + 272]  # verifies SC and SD
+		self.sb_pub_key = PY_XECRYPT_RSA_KEY(self.sb_data[616:616 + 272])  # verifies SC and SD
 		self.sc_nonce = self.sb_data[888:888 + 0x10]
 		self.sc_salt = self.sb_data[904:904 + 0xA]
 		self.sd_salt = self.sb_data[914:914 + 0xA]
@@ -372,7 +373,7 @@ class ShadowbootImage:
 		self.sc_sig = self.sc_data[32:32 + 256]
 		# SD
 		self.sd_sig = self.sd_data[32:32 + 256]
-		self.sd_pub_key = self.sd_data[288:288 + 272]  # verifies SE
+		self.sd_pub_key = PY_XECRYPT_RSA_KEY(self.sd_data[288:288 + 272])  # verifies SE
 		self.sf_nonce = self.sd_data[560:560 + 0x10]
 		self.sf_salt = self.sd_data[576:576 + 0xA]
 		self.se_digest = self.sd_data[588:588 + 0x14]
@@ -404,18 +405,15 @@ class ShadowbootImage:
 
 	def check_signature_sb_2bl(self) -> bool:
 		sb_hash = XeCryptRotSumSha(self.sb_data[:0x10] + self.sb_data[0x140:])  # skips the nonce and signature
-		assert len(ONE_BL_KEY) == XECRYPT_RSAPUB_2048_SIZE, "Invalid 1BL public key size"
-		return XeCryptBnQwBeSigVerify(self.sb_sig, sb_hash, XECRYPT_1BL_SALT, ONE_BL_KEY)
+		return ONE_BL_KEY.sig_verify(self.sb_sig, sb_hash, XECRYPT_1BL_SALT)
 
 	def check_signature_sc_3bl(self) -> bool:
 		sc_hash = XeCryptRotSumSha(self.sc_data[:0x10] + self.sc_data[0x120:])  # skips the nonce and signature
-		assert len(self.sb_pub_key) == XECRYPT_RSAPUB_2048_SIZE, "Invalid SB public key size"
-		return XeCryptBnQwBeSigVerify(self.sc_sig, sc_hash, self.sc_salt, self.sb_pub_key)
+		return self.sb_pub_key.sig_verify(self.sc_sig, sc_hash, self.sc_salt)
 
 	def check_signature_sd_4bl(self) -> bool:
 		sd_hash = XeCryptRotSumSha(self.sd_data[:0x10] + self.sd_data[0x120:])  # skips the nonce and signature
-		assert len(self.sb_pub_key) == XECRYPT_RSAPUB_2048_SIZE, "Invalid SB public key size"
-		return XeCryptBnQwBeSigVerify(self.sd_sig, sd_hash, self.sd_salt, self.sb_pub_key)
+		return self.sb_pub_key.sig_verify(self.sd_sig, sd_hash, self.sd_salt)
 
 	def check_hash_sd_4bl(self) -> bool:
 		if self.sd_digest != b"\x00" * len(self.sd_digest):
@@ -497,12 +495,10 @@ def main() -> None:
 	args = parser.parse_args()
 
 	# the 1BL public key
-	ONE_BL_KEY = read_file("Keys/1BL_pub.bin")
-	assert crc32(ONE_BL_KEY) == 0xD416B5E1, "Invalid 1BL public key"
+	ONE_BL_KEY = load_and_verify_1bl_pub()
 
 	# this used to sign the SD and it's public key is in SB
-	SB_PRV_KEY = read_file("Keys/SB_prv.bin")
-	assert crc32(SB_PRV_KEY) == 0x490C9D35, "Invalid SD private key"
+	SB_PRV_KEY = load_and_verify_sb_prv()
 
 	if args.command == "build":
 		if args.manifest.is_file():  # building with a manifest file
@@ -885,7 +881,7 @@ def main() -> None:
 			else:  # other entries
 				data = image_data[idxs[i]:idxs[i + 1]]
 			img = ShadowbootImage.parse(data, not args.nochecks, False)
-			if img.is_testkit and not img.is_retail and img.kernel_version == 17489 and img.hypervisor_version == 17489 and img.console_type == "Xenon":
+			if img.is_testkit and not img.is_retail and img.kernel_version == 12387 and img.hypervisor_version == 12387 and img.console_type == "Xenon":
 				# Path("Output/Extracted/Test Kit/hypervisor.bin").write_bytes(img.hypervisor_data)
 				Path("Output/Extracted/xboxromtw2d.bin").write_bytes(data)
 				print("Found!")

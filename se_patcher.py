@@ -6,9 +6,12 @@ from struct import pack_into
 
 from XeCrypt import *
 from build_lib import *
+from keystore import load_and_verify_sb_prv
+
+SB_PRV_KEY: PY_XECRYPT_RSA_KEY = None
 
 def main() -> None:
-	SD_PRV_KEY = Path("Keys/SB_prv.bin").read_bytes()
+	SB_PRV_KEY = load_and_verify_sb_prv()
 
 	sd_data = bytearray(Path("Output/Extracted/Winchester Stress Kit/sd_17489.bin").read_bytes())
 	se_data = bytearray(Path("Output/Extracted/Winchester Stress Kit/hypervisor.bin").read_bytes() + Path("Output/Extracted/Winchester Stress Kit/kernel.exe").read_bytes())
@@ -51,7 +54,7 @@ def main() -> None:
 	# apply padding AFTER
 	sd_data += (b"\x00" * calc_pad_size(sd_len_nopad))
 	# resign SD
-	sd_data = sign_sd_4bl(SD_PRV_KEY, XECRYPT_SD_SALT, sd_data)
+	sd_data = sign_sd_4bl(SB_PRV_KEY, XECRYPT_SD_SALT, sd_data)
 	# zero nonces
 	pack_into("16x", sd_data, 0x10)
 	pack_into("16x", se_data, 0x10)

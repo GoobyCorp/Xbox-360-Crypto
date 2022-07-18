@@ -7,17 +7,11 @@ from binascii import crc32
 from struct import pack_into
 from argparse import ArgumentParser
 
-from XeCrypt import XECRYPT_SD_SALT, XeCryptRotSumSha, XeCryptBnQwBeSigCreate, XeCryptBnQwNeRsaPrvCrypt
+from XeCrypt import *
+from build_lib import sign_sd_4bl
+from keystore import load_and_verify_sb_prv
 
-def sign_sd_4bl(key: (bytes, bytearray), salt: (bytes, bytearray), data: (bytes, bytearray)) -> bytearray:
-	if type(data) == bytes:
-		data = bytearray(data)
-
-	h = XeCryptRotSumSha(data[:0x10] + data[0x120:])
-	sig = XeCryptBnQwBeSigCreate(h, salt, key)
-	sig = XeCryptBnQwNeRsaPrvCrypt(sig, key)
-	pack_into("<256s", data, 0x20, sig)
-	return data
+SB_PRV_KEY: PY_XECRYPT_RSA_KEY = None
 
 def valid_file(parser: ArgumentParser, filename: str) -> Path:
 	if not Path(filename).is_file():
@@ -26,7 +20,7 @@ def valid_file(parser: ArgumentParser, filename: str) -> Path:
 		return Path(filename)
 
 def main() -> None:
-	SD_PRV_KEY = Path("Keys/SB_prv.bin").read_bytes()
+	SB_PRV_KEY = load_and_verify_sb_prv()
 
 	parser = ArgumentParser(description=__description__)
 	parser.add_argument("input", type=lambda x: valid_file(parser, x), help="The CD/SD to sign")
@@ -44,7 +38,7 @@ def main() -> None:
 	# set SD size
 	pack_into(">I", bl_data, 0xC, len(bl_data))
 	# resign SD
-	bl_data = sign_sd_4bl(SD_PRV_KEY, XECRYPT_SD_SALT, bl_data)
+	bl_data = sign_sd_4bl(SB_PRV_KEY, XECRYPT_SD_SALT, bl_data)
 	# zero nonces
 	pack_into("16s", bl_data, 0x10, b"\x00" * 0x10)
 	# write the CD/SD

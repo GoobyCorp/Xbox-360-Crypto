@@ -33,7 +33,7 @@
 .endm
 
 #;Arg0 is address, Arg1 is label used for handler
-.macro MAKEPATCH PAddress 
+.macro MAKEPATCH PAddress
 	.if(\PAddress)
 		#;Patch structure
 		.set 	PatchAddr, \PAddress
@@ -43,7 +43,7 @@
 .endm
 
 #;Arg0 is address, Arg1 is label used for handler
-.macro KMAKEPATCH PKAddress 
+.macro KMAKEPATCH PKAddress
 	.if(\PKAddress)
 		#;Patch structure
 		.set 	PatchAddr, (\PKAddress-KBASE)
