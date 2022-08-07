@@ -154,6 +154,7 @@ class XECRYPT_RSA(BigEndianStructure):
 	]
 
 class XECRYPT_RSAPUB_1024(BigEndianStructure):
+	_anonymous_ = ["rsa"]
 	_fields_ = [
 		("rsa", XECRYPT_RSA),
 		("n", (BYTE * 128))
@@ -166,18 +167,21 @@ class XECRYPT_RSAPUB_1536(BigEndianStructure):
 	]
 
 class XECRYPT_RSAPUB_2048(BigEndianStructure):
+	_anonymous_ = ["rsa"]
 	_fields_ = [
 		("rsa", XECRYPT_RSA),
 		("n", (BYTE * 256))
 	]
 
 class XECRYPT_RSAPUB_4096(BigEndianStructure):
+	_anonymous_ = ["rsa"]
 	_fields_ = [
 		("rsa", XECRYPT_RSA),
 		("n", (BYTE * 512))
 	]
 
 class XECRYPT_RSAPRV_1024(BigEndianStructure):
+	_anonymous_ = ["rsa"]
 	_fields_ = [
 		("rsa", XECRYPT_RSA),
 		("n", (BYTE * 128)),
@@ -189,6 +193,7 @@ class XECRYPT_RSAPRV_1024(BigEndianStructure):
 	]
 
 class XECRYPT_RSAPRV_1536(BigEndianStructure):
+	_anonymous_ = ["rsa"]
 	_fields_ = [
 		("rsa", XECRYPT_RSA),
 		("n", (BYTE * 192)),
@@ -200,6 +205,7 @@ class XECRYPT_RSAPRV_1536(BigEndianStructure):
 	]
 
 class XECRYPT_RSAPRV_2048(BigEndianStructure):
+	_anonymous_ = ["rsa"]
 	_fields_ = [
 		("rsa", XECRYPT_RSA),
 		("n", (BYTE * 256)),
@@ -211,6 +217,7 @@ class XECRYPT_RSAPRV_2048(BigEndianStructure):
 	]
 
 class XECRYPT_RSAPRV_4096(BigEndianStructure):
+	_anonymous_ = ["rsa"]
 	_fields_ = [
 		("rsa", XECRYPT_RSA),
 		("n", (BYTE * 512)),
@@ -627,7 +634,7 @@ def BnQwBeBufSwap(data: Union[bytes, bytearray], cqw: int) -> bytes:
 
 def XeCryptBnQwNeRsaKeyGen(cbits: int = 2048, dwPubExp: int = 0x10001) -> Tuple[bytes, bytes]:
 	prv_key = RSA.generate(cbits, e=dwPubExp)
-	mod_size = prv_key.size_in_bytes()
+	mod_size = prv_key.n_size_in_bytes
 	param_size = mod_size // 2
 	cqw = mod_size // 8
 
@@ -754,7 +761,7 @@ def XeCryptBnDwLePkcs1Verify(sig: Union[bytes, bytearray], b_hash: Union[bytes, 
 
 def XeKeysPkcs1Create(b_hash: Union[bytes, bytearray], prv_key: Union[bytes, bytearray]) -> Union[bytes, None]:
 	key = PY_XECRYPT_RSA_KEY(prv_key)
-	sig = bytearray(key.size_in_bytes)
+	sig = bytearray(key.n_size_in_bytes)
 	if key.cqw != 0 and key.cqw <= 0x40:
 		buf = bytearray(0x200)
 		typ = 2
@@ -990,42 +997,21 @@ class PY_XECRYPT_RSA_KEY:
 	key_bytes = None
 	rsa_struct = None
 	key_struct = None
-	is_private_key: bool = False
 
 	def __init__(self, data: Union[bytes, bytearray] = None):
 		self.reset()
 
 		self.key_bytes = data
 		self.rsa_struct = XECRYPT_RSA.from_buffer_copy(data[:sizeof(XECRYPT_RSA)])
-
-		if self.rsa_struct.cqw == 0x10 and len(self.key_bytes) == XECRYPT_RSAPUB_1024_SIZE:
-			self.key_struct = XECRYPT_RSAPUB_1024.from_buffer_copy(data)
-		elif self.rsa_struct.cqw == 0x10 and len(self.key_bytes) == XECRYPT_RSAPRV_1024_SIZE:
-			self.is_private_key = True
-			self.key_struct = XECRYPT_RSAPRV_1024.from_buffer_copy(data)
-		elif self.rsa_struct.cqw == 0x18 and len(self.key_bytes) == XECRYPT_RSAPUB_1536_SIZE:
-			self.key_struct = XECRYPT_RSAPUB_1536.from_buffer_copy(data)
-		elif self.rsa_struct.cqw == 0x18 and len(self.key_bytes) == XECRYPT_RSAPRV_1536_SIZE:
-			self.is_private_key = True
-			self.key_struct = XECRYPT_RSAPRV_1536.from_buffer_copy(data)
-		elif self.rsa_struct.cqw == 0x20 and len(self.key_bytes) == XECRYPT_RSAPUB_2048_SIZE:
-			self.key_struct = XECRYPT_RSAPUB_2048.from_buffer_copy(data)
-		elif self.rsa_struct.cqw == 0x20 and len(self.key_bytes) == XECRYPT_RSAPRV_2048_SIZE:
-			self.is_private_key = True
-			self.key_struct = XECRYPT_RSAPRV_2048.from_buffer_copy(data)
-		elif self.rsa_struct.cqw == 0x40 and len(self.key_bytes) == XECRYPT_RSAPUB_4096_SIZE:
-			self.key_struct = XECRYPT_RSAPUB_4096.from_buffer_copy(data)
-		elif self.rsa_struct.cqw == 0x40 and len(self.key_bytes) == XECRYPT_RSAPRV_4096_SIZE:
-			self.is_private_key = True
-			self.key_struct = XECRYPT_RSAPRV_4096.from_buffer_copy(data)
-		else:
-			raise Exception("Invalid key data specified!")
+		try:
+			self.key_struct = globals()[f"XECRYPT_RSA{'PRV' if self.is_private_key else 'PUB'}_{self.n_size_in_bits}"].from_buffer_copy(data)
+		except KeyError as e:
+			raise Exception("Invalid key data specified")
 
 	def reset(self) -> None:
 		self.key_bytes = None
 		self.rsa_struct = None
 		self.key_struct = None
-		self.is_private_key = False
 
 	def __bytes__(self) -> bytes:
 		return self.key_bytes
@@ -1038,7 +1024,7 @@ class PY_XECRYPT_RSA_KEY:
 
 	def to_pycrypto(self) -> RSA:
 		if self.is_private_key:
-			return RSA.construct((self.n, self.e, self.d, self.p, self.q))
+			return RSA.construct((self.n, self.e, self.d, self.p, self.q, self.inv_q))
 		else:
 			return RSA.construct((self.n, self.e))
 
@@ -1051,26 +1037,33 @@ class PY_XECRYPT_RSA_KEY:
 
 	@property
 	def public_key(self):
-		return PY_XECRYPT_RSA_KEY(self.key_bytes[:globals()[f"XECRYPT_RSAPUB_{self.size_in_bits}_SIZE"]])
+		try:
+			return PY_XECRYPT_RSA_KEY(self.key_bytes[:globals()[f"XECRYPT_RSAPUB_{self.n_size_in_bits}_SIZE"]])
+		except KeyError as e:
+			raise Exception("Invalid key data specified")
 
 	def c_struct(self):
 		return self.key_struct
 
 	@property
-	def size_in_bytes(self) -> int:
+	def is_private_key(self) -> bool:
+		return len(self.key_bytes) > (sizeof(XECRYPT_RSA) + self.n_size_in_bytes)
+
+	@property
+	def n_size_in_bytes(self) -> int:
 		return self.cqw * 8
 
 	@property
-	def size_in_bits(self) -> int:
-		return self.size_in_bytes * 8
+	def n_size_in_bits(self) -> int:
+		return self.n_size_in_bytes * 8
 
 	@property
 	def cqw(self) -> int:
-		return self.key_struct.rsa.cqw
+		return self.rsa_struct.cqw
 
 	@property
 	def mod_inv(self) -> int:
-		v = self.key_struct.rsa.qwReserved
+		v = self.key_struct.qwReserved
 		if v == 0:
 			v = XeCryptBnQwNeModInv(int.from_bytes(bytes(self.key_struct.n)[:8], "big"))
 		v &= UINT64_MASK
@@ -1082,7 +1075,7 @@ class PY_XECRYPT_RSA_KEY:
 
 	@property
 	def e(self) -> int:
-		return self.key_struct.rsa.e
+		return self.key_struct.e
 
 	@property
 	def d(self) -> int:
@@ -1107,6 +1100,10 @@ class PY_XECRYPT_RSA_KEY:
 	@property
 	def u(self) -> int:
 		return int.from_bytes(bswap64(bytes(self.key_struct.cr)), "little", signed=False)
+
+	@property
+	def inv_q(self) -> int:
+		return modinv(self.p, self.q)
 
 	def sig_create(self, hash: Union[bytes, bytearray], salt: Union[bytes, bytearray]) -> bytes:
 		assert self.is_private_key, "Key isn't a private key!"
