@@ -89,7 +89,7 @@ def stream_decrypt_with_struct(xcp: StreamIO, key: Union[bytes, bytearray], stru
 	xcp.write(dec_data)
 	return dec_data
 
-def main() -> None:
+def main() -> int:
 	# setup arguments
 	parser = ArgumentParser(description="A script to decrypt, merge, and convert XCP files for the Xbox 360")
 	parser.add_argument("input", type=str, help="The file or directory to use (no extension on files!)")
@@ -106,6 +106,11 @@ def main() -> None:
 
 	if not args.ignore:
 		input("This will OVERWRITE and DELETE the original XCP file, press \"ENTER\" if you want to continue...")
+
+	# just for testing
+	#if isfile(args.input + ".xcp"):
+	#	remove(args.input + ".xcp")
+	#	copyfile(args.input + ".bak", args.input + ".xcp")
 
 	print("Decrypting XCP file...")
 	with StreamIO(args.input + ".xcp", Endian.LITTLE) as xcp:
@@ -141,23 +146,27 @@ def main() -> None:
 				xcp.offset += 1
 				idx += 1
 			# rename the files to extract them properly
-			xcp.write_ubytes_at(xcp.offset - 4, str(i).zfill(3).encode("utf8"))
+			xcp.write_bytes_at(xcp.offset - 4, str(i).zfill(3).encode("UTF8"))
+
+		print("Caching folders...")
+		xcp.offset = 0x180
+		folders = []
+		for i in range(cab_hdr_struct.cnt_folders):
+			xcp.set_label(f"folder{i}")
+			folders.append(xcp.read_struct(CAB_FOLDER))
+			xcp.seek(XENON_DATA_SIZE, SEEK_CUR)
 
 		print("Decrypting folders...")
-		xcp.offset = 0x180
 		for i in range(cab_hdr_struct.cnt_folders):
-			xcp.set_label("folder")
-			folder = xcp.read_struct(CAB_FOLDER)
+			curr_folder = folders[i]
 
-			endoff = xcp.length()
-			if (i + 1) < cab_hdr_struct.cnt_folders:
-				endoff = xcp.read_struct_at(xcp.get_label("folder") + (sizeof(CAB_FOLDER) + XENON_DATA_SIZE), CAB_FOLDER).off_cab_start
-			size = endoff - folder.off_cab_start
+			if (i + 1) == cab_hdr_struct.cnt_folders:
+				size = xcp.length() - curr_folder.off_cab_start
+			else:
+				next_folder = folders[i + 1]
+				size = next_folder.off_cab_start - curr_folder.off_cab_start
 
-			if size <= 0:
-				break
-
-			stream_decrypt_with_struct(xcp, args.key, xcp.offset, folder.off_cab_start, size)
+			stream_decrypt_with_struct(xcp, args.key, xcp.get_label(f"folder{i}") + sizeof(CAB_FOLDER), curr_folder.off_cab_start, size)
 
 	print("Renaming the XCP file...")
 	# renaming is quicker than copying
@@ -200,5 +209,7 @@ def main() -> None:
 
 	print("Done!")
 
+	return 0
+
 if __name__ == "__main__":
-	main()
+	exit(main())
