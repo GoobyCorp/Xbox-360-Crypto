@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 
+from os import name
 from ctypes import *
 from typing import Union
+from pathlib import Path
 from shutil import copyfile
 from subprocess import Popen, PIPE
 from argparse import ArgumentParser
-from os.path import join, isdir, isfile
-from os import name, listdir, makedirs, remove, rmdir, rename
 
 from XeCrypt import *
 from StreamIO import *
@@ -14,7 +14,11 @@ from StreamIO import *
 # constants
 BUFF_SIZE = 4096
 XENON_DATA_SIZE = 0x1C
+WORK_DIR = None
+CACHE_DIR = "cache"
+TMP_CAB_FILE = "tmp.cab"
 
+# aliases
 c_word = c_uint16
 c_dword = c_uint32
 c_qword = c_uint64
@@ -90,30 +94,36 @@ def stream_decrypt_with_struct(xcp: StreamIO, key: Union[bytes, bytearray], stru
 	return dec_data
 
 def main() -> int:
+	global WORK_DIR
+
 	# setup arguments
 	parser = ArgumentParser(description="A script to decrypt, merge, and convert XCP files for the Xbox 360")
-	parser.add_argument("input", type=str, help="The file or directory to use (no extension on files!)")
+	parser.add_argument("input", type=str, help="The file to extract")
 	parser.add_argument("-k", "--key", type=str, help="The key used to decrypt the XCP package")
 	parser.add_argument("--ignore", action="store_true", help="Ignore the file overwrite warning")
-	parser.add_argument("--keep", action="store_true", help="Keep the CAB file after conversion")
+	parser.add_argument("--no-backup", action="store_true", help="Disable backups")
 	# parse arguments
 	args = parser.parse_args()
 
 	# validate arguments
-	assert isfile(args.input + ".xcp") or isdir(args.input), "The specified input file or directory doesn't exist"
+	assert Path(args.input).is_file(), "The specified input file or directory doesn't exist"
 	if args.key and len(args.key) % 2 == 0:
 		args.key = bytes.fromhex(args.key)
+
+	# create work path
+	WORK_DIR = Path(args.input).parents[0].absolute()
 
 	if not args.ignore:
 		input("This will OVERWRITE and DELETE the original XCP file, press \"ENTER\" if you want to continue...")
 
-	# just for testing
-	#if isfile(args.input + ".xcp"):
-	#	remove(args.input + ".xcp")
-	#	copyfile(args.input + ".bak", args.input + ".xcp")
+	if not args.no_backup:
+		print("Backing up the input file...")
+		copyfile(args.input, WORK_DIR / (Path(args.input).stem + ".bak"))
+	else:
+		print("Skipping backup...")
 
 	print("Decrypting XCP file...")
-	with StreamIO(args.input + ".xcp", Endian.LITTLE) as xcp:
+	with StreamIO(args.input, Endian.LITTLE) as xcp:
 		print("Decrypting CAB header...")
 		cab_hdr_data = stream_decrypt_with_struct(xcp, args.key, 0x60, 0, 0x60)
 		cab_hdr_struct = CAB_HEADER.from_buffer_copy(cab_hdr_data)
@@ -148,7 +158,7 @@ def main() -> int:
 			# rename the files to extract them properly
 			xcp.write_bytes_at(xcp.offset - 4, str(i).zfill(3).encode("UTF8"))
 
-		print("Caching folders...")
+		print("Parsing folders...")
 		xcp.offset = 0x180
 		folders = []
 		for i in range(cab_hdr_struct.cnt_folders):
@@ -168,44 +178,39 @@ def main() -> int:
 
 			stream_decrypt_with_struct(xcp, args.key, xcp.get_label(f"folder{i}") + sizeof(CAB_FOLDER), curr_folder.off_cab_start, size)
 
-	print("Renaming the XCP file...")
-	# renaming is quicker than copying
-	if args.keep:
-		# copy instead of renaming so we can keep the original file
-		copyfile(args.input + ".xcp", args.input + ".cab")
-	else:
-		# renaming is quicker than copying
-		rename(args.input + ".xcp", args.input + ".cab")
-
-	if not isdir(args.input):
+	if not (WORK_DIR / CACHE_DIR).is_dir():
 		print("Creating output directory...")
-		makedirs(args.input)
+		(WORK_DIR / CACHE_DIR).mkdir()
+
+	print("Renaming XCP file...")
+	if (WORK_DIR / TMP_CAB_FILE).is_file():
+		(WORK_DIR / TMP_CAB_FILE).unlink()
+	Path(args.input).rename(WORK_DIR / TMP_CAB_FILE)
 
 	print("Extracting CAB file...")
 	# extract the cabinet file and make sure it exited properly
-	assert extract_cab(args.input + ".cab", args.input), "CAB extraction failed!"
+	assert extract_cab(str(WORK_DIR / TMP_CAB_FILE), str(WORK_DIR / CACHE_DIR)), "CAB extraction failed!"
 
 	print("Merging the extracted files...")
 	# merge the files together to make them into one file
-	with StreamIO(args.input + ".bin") as f0:
-		for single in listdir(args.input):
-			with open(join(args.input, single), "rb") as f1:
+	with StreamIO(str(WORK_DIR / (Path(args.input).stem + ".bin"))) as fw:
+		for single in (WORK_DIR / CACHE_DIR).iterdir():
+			with open((WORK_DIR / CACHE_DIR / single), "rb") as fr:
 				while True:
-					buff = f1.read(BUFF_SIZE)
+					buff = fr.read(BUFF_SIZE)
 					if not buff:
 						break
-					f0.write(buff)
+					fw.write(buff)
 		print("Converting to a LIVE package...")
 		# really hacky way to make it a LIVE file
-		f0.write_ubytes_at(0, b"LIVE")
+		fw.write_bytes_at(0, b"LIVE")
 
 	print("Cleaning up...")
 	# clean up
-	if not args.keep:
-		remove(args.input + ".cab")
-	for single in listdir(args.input):
-		remove(join(args.input, single))
-	rmdir(args.input)
+	(WORK_DIR / TMP_CAB_FILE).unlink()
+	for single in (WORK_DIR / CACHE_DIR).iterdir():
+		single.unlink()
+	(WORK_DIR / CACHE_DIR).rmdir()
 
 	print("Done!")
 
