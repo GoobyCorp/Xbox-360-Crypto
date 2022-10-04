@@ -24,7 +24,8 @@ def main() -> int:
 	# rgl_data = Path("Output/Zero/RGL.bin").read_bytes()
 	# Path("Output/Zero/VRGL.bin").write_bytes(vfuses_data[:-4] + rgl_data)
 
-	assemble_patch("Patches/Dump100C0.S", "Output/Dump100C0.bin", PATCH_DIR)
+	# assemble_patch("Patches/Dump100C0.S", "Output/Dump100C0.bin", PATCH_DIR)
+	assemble_patch("Patches/SpoofyTest.S", "Output/SpoofyTest.bin", PATCH_DIR)
 
 	return 0
 

@@ -115,141 +115,46 @@ PeekMSR:
 
 # don't clobber r5 (source) or r6 (dest)
 check_fix_address:
+	# r4 = 0x8000020000020000
 	lis     r4, 0x8000
 	ori     r4, r4, 0x0200
 	rldicr  r4, r4, 0x20, 0x1F
 	oris    r4, r4, 0x2
 
-	# fuseline 0
-	# r4 = 0x8000020000020000
-	cmpld   r5, r4
-	beq     fuseline_0
+    # clear r13 for use as CTR
+    xor     r13, r13, r13
+    li      r13, 0xC  # 0xC = number of fuse lines
 
-	# fuseline 1
-	# r4 = 0x8000020000020200
+    # clear r14 for use as fuse offset
+    xor     r14, r14, r14
+    li      r14, 0x60
+
+    # set CTR to 0xC
+	mtctr   r13
+
+    # r4 = (0x8000020000020000 <-> 0x8000020000021600)
+check_fix_address_loop:
+    # compare r4 to r5 (source)
+	cmpld   r5, r4
+
+	# jump to check_fix_address_match if the address matches a fuseline
+	beq     check_fix_address_match
+
+	# subtract fuse size from r14 (fuse offset)
+    subi    r14, r14, 0x8
+
+    # increment address by 0x200
 	addi    r4, r4, 0x200
-	cmpld   r5, r4
-	beq     fuseline_1
+	bdnz    check_fix_address_loop
 
-	# fuseline 2
-	# r4 = 0x8000020000020400
-	addi    r4, r4, 0x200
-	cmpld   r5, r4
-	beq     fuseline_2
+    # loop fell through so return
+	blr
 
-	# fuseline 3
-	# r4 = 0x8000020000020600
-	addi    r4, r4, 0x200
-	cmpld   r5, r4
-	beq     fuseline_3
+check_fix_address_match:
+	lis     r5, 1
+	# subtract r14 (fuse offset) from r5 (source)
+	subi    r5, r5, r14
 
-	# fuseline 4
-	# r4 = 0x8000020000020800
-	addi    r4, r4, 0x200
-	cmpld   r5, r4
-	beq     fuseline_4
-
-	# fuseline 5
-	# r4 = 0x8000020000020A00
-	addi    r4, r4, 0x200
-	cmpld   r5, r4
-	beq     fuseline_5
-
-	# fuseline 6
-	# r4 = 0x8000020000020C00
-	addi    r4, r4, 0x200
-	cmpld   r5, r4
-	beq     fuseline_6
-
-	# fuseline 7
-	# r4 = 0x8000020000020E00
-	addi    r4, r4, 0x200
-	cmpld   r5, r4
-	beq     fuseline_7
-
-	# fuseline 8
-	# r4 = 0x8000020000021000
-	addi    r4, r4, 0x200
-	cmpld   r5, r4
-	beq     fuseline_8
-
-	# fuseline 9
-	# r4 = 0x8000020000021200
-	addi    r4, r4, 0x200
-	cmpld   r5, r4
-	beq     fuseline_9
-
-	# fuseline 10
-	# r4 = 0x8000020000021400
-	addi    r4, r4, 0x200
-	cmpld   r5, r4
-	beq     fuseline_10
-
-	# fuseline 11
-	# r4 = 0x8000020000021600
-	addi    r4, r4, 0x200
-	cmpld   r5, r4
-	beq     fuseline_11
-
-	blr
-fuseline_0:
-	lis     r5, 1
-	subi    r5, r5, 0x60
-	blr
-fuseline_1:
-	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x8
-	blr
-fuseline_2:
-	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x10
-	blr
-fuseline_3:
-	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x18
-	blr
-fuseline_4:
-	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x20
-	blr
-fuseline_5:
-	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x28
-	blr
-fuseline_6:
-	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x30
-	blr
-fuseline_7:
-	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x38
-	blr
-fuseline_8:
-	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x40
-	blr
-fuseline_9:
-	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x48
-	blr
-fuseline_10:
-	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x50
-	blr
-fuseline_11:
-	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x58
 	blr
 
 PokeBYTE:
