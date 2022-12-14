@@ -90,15 +90,14 @@ def apply_jump_sd_4bl(data: Union[bytes, bytearray], size: int) -> bytearray:
 	return bytearray(data)
 
 def apply_patches(bl_data: Union[bytes, bytearray], patch_data: Union[str, bytes, bytearray]) -> bytearray:
-	with StreamIO(bl_data, Endian.BIG) as blsio:
-		with StreamIO(patch_data, Endian.BIG) as psio:
-			while True:
-				addr = psio.read_uint32()
-				if addr == 0xFFFFFFFF:
-					break
-				size = psio.read_uint32()
-				patch = psio.read_ubytes(size * 4)
-				blsio.write_ubytes_at(addr, patch)
+	with StreamIO(bl_data, Endian.BIG) as blsio, StreamIO(patch_data, Endian.BIG) as psio:
+		while True:
+			addr = psio.read_uint32()
+			if addr == 0xFFFFFFFF:
+				break
+			size = psio.read_uint32()
+			patch = psio.read_ubytes(size * 4)
+			blsio.write_ubytes_at(addr, patch)
 		bl_data = blsio.getvalue()
 	return bytearray(bl_data)
 

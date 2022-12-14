@@ -21,10 +21,15 @@ from typing import Union, Tuple, Optional
 from struct import pack, unpack, pack_into, unpack_from, calcsize
 from ctypes import BigEndianStructure, sizeof, c_ubyte, c_uint16, c_uint32, c_uint64
 
-# pip install pycryptodome
-from Crypto.PublicKey import RSA
-from Crypto.Hash import MD5, SHA1, HMAC
-from Crypto.Cipher import ARC4, DES, DES3, AES
+# py -3 -m pip install cryptography
+from cryptography.hazmat.primitives.hmac import HMAC
+from cryptography.hazmat.primitives.hashes import Hash
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.hazmat.primitives.ciphers import Cipher
+from cryptography.hazmat.primitives.hashes import MD5, SHA1
+from cryptography.hazmat.primitives.ciphers.modes import ECB, CBC
+from cryptography.hazmat.primitives.ciphers.algorithms import ARC4, AES
+from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey, RSAPrivateKey, RSAPublicNumbers, RSAPrivateNumbers
 
 # globals
 # constants
@@ -316,25 +321,25 @@ def XeCryptRandom(cb: int) -> bytes:
 
 # hashing
 def XeCryptMd5(*args: Union[bytes, bytearray]) -> bytes:
-	hasher = MD5.new()
-	[hasher.update(x) for x in args]
-	return hasher.digest()
+	h = Hash(MD5())
+	[h.update(x) for x in args]
+	return h.finalize()
 
 def XeCryptSha(*args: Union[bytes, bytearray]) -> bytes:
-	hasher = SHA1.new()
-	[hasher.update(x) for x in args]
-	return hasher.digest()
+	h = Hash(SHA1())
+	[h.update(x) for x in args]
+	return h.finalize()
 
 # MAC
 def XeCryptHmacMd5(key: Union[bytes, bytearray], *args: Union[bytes, bytearray]) -> bytes:
-	hasher = HMAC.new(key, digestmod=MD5)
-	[hasher.update(x) for x in args]
-	return hasher.digest()
+	h = HMAC(key, MD5())
+	[h.update(x) for x in args]
+	return h.finalize()
 
 def XeCryptHmacSha(key: Union[bytes, bytearray], *args: Union[bytes, bytearray]) -> bytes:
-	hasher = HMAC.new(key, digestmod=SHA1)
-	[hasher.update(x) for x in args]
-	return hasher.digest()
+	h = HMAC(key, SHA1())
+	[h.update(x) for x in args]
+	return h.finalize()
 
 # RC4
 class XeCryptRc4:
@@ -342,7 +347,9 @@ class XeCryptRc4:
 
 	def __init__(self, key: Union[bytes, bytearray]):
 		self.reset()
-		self._cipher = ARC4.new(key)
+		self._cipher = Cipher(ARC4(key), None)
+		self._enc = self._cipher.encryptor()
+		self._dec = self._cipher.decryptor()
 
 	def reset(self) -> None:
 		self._cipher = None
@@ -353,69 +360,13 @@ class XeCryptRc4:
 
 	# encrypt and decrypt are exactly the same for RC4
 	def crypt(self, data: Union[bytes, bytearray]) -> bytes:
-		return self._cipher.encrypt(data)
+		return self.encrypt(data)
 
 	def encrypt(self, data: Union[bytes, bytearray]) -> bytes:
-		return self.crypt(data)
+		return self._enc.update(data)
 
 	def decrypt(self, data: Union[bytes, bytearray]) -> bytes:
-		return self.crypt(data)
-
-# DES
-class XeCryptDes:
-	MODE_ECB = 1
-	MODE_CBC = 2
-
-	def __init__(self, key: Union[bytes, bytearray], mode: Optional[int] = MODE_ECB, iv: Optional[Union[bytes, bytearray]] = None):
-		self.reset()
-		if mode == self.MODE_ECB:
-			self._cipher = DES.new(key, mode)
-		elif mode == self.MODE_CBC:
-			assert iv is not None, "IV is required for the CBC cipher mode"
-			self._cipher = DES.new(key, mode, iv)
-		else:
-			raise Exception("Invalid cipher mode entered")
-
-	def reset(self) -> None:
-		self._cipher = None
-
-	@staticmethod
-	def new(key: Union[bytes, bytearray], mode: Optional[int] = MODE_ECB, iv: Optional[Union[bytes, bytearray]] = None):
-		return XeCryptDes(key, mode, iv)
-
-	def encrypt(self, data: Union[bytes, bytearray]) -> bytes:
-		return self._cipher.encrypt(data)
-
-	def decrypt(self, data: Union[bytes, bytearray]) -> bytes:
-		return self._cipher.decrypt(data)
-
-# DES 3
-class XeCryptDes3:
-	MODE_ECB = 1
-	MODE_CBC = 2
-
-	def __init__(self, key: Union[bytes, bytearray], mode: Optional[int] = MODE_ECB, iv: Optional[Union[bytes, bytearray]] = None):
-		self.reset()
-		if mode == self.MODE_ECB:
-			self._cipher = DES3.new(key, mode)
-		elif mode == self.MODE_CBC:
-			assert iv is not None, "IV is required for the CBC cipher mode"
-			self._cipher = DES3.new(key, mode, iv)
-		else:
-			raise Exception("Invalid cipher mode entered")
-
-	def reset(self) -> None:
-		self._cipher = None
-
-	@staticmethod
-	def new(key: Union[bytes, bytearray], mode: Optional[int] = MODE_ECB, iv: Optional[Union[bytes, bytearray]] = None):
-		return XeCryptDes3(key, mode, iv)
-
-	def encrypt(self, data: Union[bytes, bytearray]) -> bytes:
-		return self._cipher.encrypt(data)
-
-	def decrypt(self, data: Union[bytes, bytearray]) -> bytes:
-		return self._cipher.decrypt(data)
+		return self._dec.update(data)
 
 # AES
 class XeCryptAes:
@@ -425,12 +376,14 @@ class XeCryptAes:
 	def __init__(self, key: Union[bytes, bytearray], mode: Optional[int] = MODE_ECB, iv: Optional[Union[bytes, bytearray]] = None):
 		self.reset()
 		if mode == self.MODE_ECB:
-			self._cipher = AES.new(key, mode)
+			self._cipher = Cipher(AES(key), ECB())
 		elif mode == self.MODE_CBC:
 			assert iv is not None, "IV is required for the CBC cipher mode"
-			self._cipher = AES.new(key, mode, iv)
+			self._cipher = Cipher(AES(key), CBC(iv))
 		else:
 			raise Exception("Invalid cipher mode entered")
+		self._enc = self._cipher.encryptor()
+		self._dec = self._cipher.decryptor()
 
 	def reset(self) -> None:
 		self._cipher = None
@@ -440,10 +393,10 @@ class XeCryptAes:
 		return XeCryptAes(key, mode, iv)
 
 	def encrypt(self, data: Union[bytes, bytearray]) -> bytes:
-		return self._cipher.encrypt(data)
+		return self._enc.update(data)
 
 	def decrypt(self, data: Union[bytes, bytearray]) -> bytes:
-		return self._cipher.decrypt(data)
+		return self._dec.update(data)
 
 # conversions
 def XeCryptRsaBinToStruct(data: Union[bytes, bytearray]) -> Union[XECRYPT_RSAPUB_1024, XECRYPT_RSAPUB_2048, XECRYPT_RSAPUB_4096, XECRYPT_RSAPRV_1024, XECRYPT_RSAPRV_2048, XECRYPT_RSAPRV_4096]:
@@ -509,13 +462,13 @@ def XeCryptRotSum(data: Union[bytes, bytearray]) -> bytes:
 		return pack(">4Q", qw1, qw2, qw3, qw4)
 
 def XeCryptRotSumSha(data: Union[bytes, bytearray]) -> bytes:
-	hasher = SHA1.new()
+	h = Hash(SHA1())
 	rot_sum = bytearray(XeCryptRotSum(data))
-	hasher.update(rot_sum + rot_sum + data)
+	h.update(rot_sum + rot_sum + data)
 	for i in range(0x20):
 		rot_sum[i] = (~rot_sum[i] & 0xFF)
-	hasher.update(rot_sum + rot_sum)
-	return hasher.digest()
+	h.update(rot_sum + rot_sum)
+	return h.finalize()
 
 # RSA
 def XeCryptMulHdu(val1: int, val2: int) -> Tuple[int, int]:
@@ -633,17 +586,21 @@ def BnQwBeBufSwap(data: Union[bytes, bytearray], cqw: int) -> bytes:
 	return data
 
 def XeCryptBnQwNeRsaKeyGen(cbits: int = 2048, dwPubExp: int = 0x10001) -> Tuple[bytes, bytes]:
-	prv_key = RSA.generate(cbits, e=dwPubExp)
-	mod_size = prv_key.n_size_in_bytes
+	# prv_key = RSA.generate(cbits, e=dwPubExp)
+	prv_key = rsa.generate_private_key(dwPubExp, cbits)
+	mod_size = prv_key.key_size
 	param_size = mod_size // 2
 	cqw = mod_size // 8
 
-	n = bswap64(prv_key.n.to_bytes(mod_size, "little", signed=False))
-	p = bswap64(prv_key.p.to_bytes(param_size, "little", signed=False))
-	q = bswap64(prv_key.q.to_bytes(param_size, "little", signed=False))
-	dp = bswap64((prv_key.d % (prv_key.p - 1)).to_bytes(param_size, "little", signed=False))
-	dq = bswap64((prv_key.d % (prv_key.q - 1)).to_bytes(param_size, "little", signed=False))
-	u = bswap64(modinv(prv_key.q, prv_key.p).to_bytes(param_size, "little", signed=False))
+	pub_n = prv_key.public_key().public_numbers()
+	prv_n = prv_key.private_numbers()
+
+	n = bswap64(pub_n.n.to_bytes(mod_size, "little", signed=False))
+	p = bswap64(prv_n.p.to_bytes(param_size, "little", signed=False))
+	q = bswap64(prv_n.q.to_bytes(param_size, "little", signed=False))
+	dp = bswap64(prv_n.dmp1.to_bytes(param_size, "little", signed=False))
+	dq = bswap64(prv_n.dmq1.to_bytes(param_size, "little", signed=False))
+	u = bswap64(modinv(prv_n.q, prv_n.p).to_bytes(param_size, "little", signed=False))
 
 	mod_inv = XeCryptBnQwNeModInv(int.from_bytes(n[:8], "big"))
 	mod_inv &= UINT64_MASK
@@ -665,7 +622,10 @@ def XeCryptBnQwBeSigFormat(sig: Union[bytes, bytearray], b_hash: Union[bytes, by
 	if type(sig) == bytes:
 		sig = bytearray(sig)
 
-	ab_hash = SHA1.new((b"\x00" * 8) + b_hash + salt).digest()
+	h = Hash(SHA1())
+	h.update((b"\x00" * 8) + b_hash + salt)
+	ab_hash = h.finalize()
+
 	pack_into("<B", sig, 0xE0, 1)
 	pack_into("<10s", sig, 0xE1, salt)
 	pack_into("<235s", sig, 0, XeCryptRc4.new(ab_hash).encrypt(sig[:0xEB]))
@@ -713,7 +673,9 @@ def XeCryptBnQwBeSigVerify(sig: Union[bytes, bytearray], b_hash: Union[bytes, by
 	if sig_dec[0xFF] != 0xBC:
 		return False
 
-	if SHA1.new((b"\x00" * 8) + b_hash + salt).digest() != sig_dec[0xEB:-1]:
+	h = Hash(SHA1())
+	h.update((b"\x00" * 8) + b_hash + salt)
+	if h.finalize() != sig_dec[0xEB:-1]:
 		return False
 
 	sig_dec = XeCryptRc4.new(sig_dec[0xEB:-1]).decrypt(sig_dec[:0xEB])
@@ -1022,13 +984,13 @@ class PY_XECRYPT_RSA_KEY:
 	def to_bytes(self) -> bytes:
 		return self.key_bytes
 
-	def to_pycrypto(self) -> RSA:
+	def to_cryptography(self) -> Union[RSAPrivateKey, RSAPublicKey]:
+		pn = RSAPublicNumbers(self.e, self.n)
 		if self.is_private_key:
-			return RSA.construct((self.n, self.e, self.d, self.p, self.q, self.inv_q))
+			pn = RSAPrivateNumbers(self.p, self.q, self.d, self.dp, self.dq, self.inv_q, pn)
+			return pn.private_key()
 		else:
-			return RSA.construct((self.n, self.e))
-
-	to_pycryptodome = to_pycrypto
+			return pn.public_key()
 
 	@staticmethod
 	def new(bits: int = 2048, exp: int = 0x10001):
@@ -1213,8 +1175,6 @@ __all__.extend([
 	"XeCryptPageEccEncode",
 	"XeCryptRandom",
 	"XeCryptRc4",
-	"XeCryptDes",
-	"XeCryptDes3",
 	"XeCryptAes",
 	"XeCryptRotSum",
 	"XeCryptRotSumSha",
