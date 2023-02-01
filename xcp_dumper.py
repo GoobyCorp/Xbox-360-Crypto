@@ -87,10 +87,14 @@ def stream_decrypt_with_struct(xcp: StreamIO, key: Union[bytes, bytearray], stru
 	rc4_sha_struct = xcp.read_struct(RC4_SHA_HEADER)
 	cipher = XeCryptRc4.new(XeCryptHmacSha(key, bytes(rc4_sha_struct.cksm)))
 	cipher.decrypt(bytes(rc4_sha_struct.confounder))
-	xcp.offset = data_offset
-	dec_data = cipher.decrypt(xcp.read(size))
-	xcp.offset = data_offset
-	xcp.write(dec_data)
+
+	# xcp.offset = data_offset
+	# dec_data = cipher.decrypt(xcp.read(size))
+	# xcp.offset = data_offset
+	# xcp.write(dec_data)
+
+	dec_data = xcp.perform_function_at(data_offset, size, cipher.decrypt)
+
 	return dec_data
 
 def main() -> int:
@@ -144,9 +148,8 @@ def main() -> int:
 		for i in range(cab_hdr_struct.cnt_files):
 			# decrypt header
 			xcp.perform_function_at(xcp.offset, sizeof(CAB_ENTRY), cipher.decrypt)
-			# ent = xcp.read_struct_at(xcp.offset, CAB_ENTRY)
 
-			xcp.offset += 0x10
+			xcp.offset += sizeof(CAB_ENTRY)
 
 			# decrypt filename
 			idx = 0

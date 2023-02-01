@@ -21,7 +21,7 @@ def load_and_verify_1bl_pub() -> PY_XECRYPT_RSA_KEY:
 
 def load_and_verify_xmacs_pub() -> PY_XECRYPT_RSA_KEY:
 	data = (KEY_PATH / "XMACS_pub.bin").read_bytes()
-	assert crc32(data) == CKSM_HVX_PRV, "Invalid key checksum!"
+	assert crc32(data) == CKSM_XMACS_PUB, "Invalid key checksum!"
 	return PY_XECRYPT_RSA_KEY(data)
 
 def load_and_verify_sb_prv() -> PY_XECRYPT_RSA_KEY:

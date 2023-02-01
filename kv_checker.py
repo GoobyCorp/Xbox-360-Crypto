@@ -19,13 +19,13 @@ from struct import pack_into, unpack_from
 
 from XeCrypt import *
 from StreamIO import *
+from keystore import load_and_verify_xmacs_pub
 
-# pip install pycryptodome
-from Crypto.Hash import SHA1
-from Crypto.Cipher import PKCS1_OAEP
-from Crypto.Signature import PKCS1_v1_5
+# py -3 -m pip install cryptography
+from cryptography.hazmat.primitives.hashes import SHA1
+from cryptography.hazmat.primitives.asymmetric.padding import PKCS1v15, OAEP, MGF1
 
-XMACS_RSA_PUB_2048 = None
+XMACS_RSA_PUB_2048: PY_XECRYPT_RSA_KEY = None
 
 XEAS_REALM = "xeas.xboxlive.com"
 XETGS_REALM = "xetgs.xboxlive.com"
@@ -107,16 +107,16 @@ def get_title_auth_data(key: Union[bytes, bytearray], data: Union[bytes, bytearr
 	return array
 
 def get_xmacs_logon_key(serial_num: bytes, console_cert: bytes, console_prv_key: bytes, console_id: bytes) -> (bytes, bytearray):
-	rsa_prov = PKCS1_OAEP.new(PY_XECRYPT_RSA_KEY(XMACS_RSA_PUB_2048).to_pycrypto())
+	k = XMACS_RSA_PUB_2048.to_cryptography()
 	rand_key = urandom(16)
-	enc_key = reverse(rsa_prov.encrypt(rand_key))
+	enc_key = reverse(k.encrypt(rand_key, OAEP(MGF1(SHA1()), SHA1(), None)))
 
+	k = PY_XECRYPT_RSA_KEY(console_prv_key).to_cryptography()
 	client_name = compute_client_name(console_id)
-	rsa_prov = PKCS1_v1_5.new(PY_XECRYPT_RSA_KEY(console_prv_key).to_pycrypto())
 	file_time = get_file_time().to_bytes(8, "big")
 	ts = generate_timestamp()
 	enc_ts = HMAC_RC4_encrypt(rand_key, ts, 1)
-	array_7 = reverse(rsa_prov.sign(SHA1.new(file_time + serial_num + XeCryptSha(rand_key))))
+	array_7 = reverse(k.sign(file_time + serial_num + XeCryptSha(rand_key), PKCS1v15(), SHA1()))
 
 	# can't use StreamIO inside of StreamIO ???
 	with StreamIO(read_file("bin/KV/XMACSREQ.bin"), Endian.BIG) as sio:
@@ -264,8 +264,7 @@ def main() -> None:
 
 	args = parser.parse_args()
 
-	XMACS_RSA_PUB_2048 = read_file("Keys/XMACS_pub.bin")
-	assert crc32(XMACS_RSA_PUB_2048) == 0xE4F01473, "Invalid XMACS public key"
+	XMACS_RSA_PUB_2048 = load_and_verify_xmacs_pub()
 
 	# get absolute path
 	args.path = args.path.resolve()

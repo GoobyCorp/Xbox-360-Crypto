@@ -37,6 +37,13 @@ def assemble_patch(asm_filename: str, bin_filename: str, *includes) -> None:
 
 	Path("temp.elf").unlink()
 
+def run_command(path: Union[Path, str], *args: str) -> tuple[int, str]:
+	ep = Path(path)  # executable path
+	a = [str(ep.absolute())]
+	a.extend(args)
+	result = subprocess.run(a, shell=True, stdout=subprocess.PIPE)
+	return result.returncode, result.stdout.decode("UTF8", errors="ignore")
+
 # C functions
 def decompress_se(data: Union[bytes, bytearray]) -> bytearray:
 	(u_size,) = unpack_from(">I", data, 0x28)
@@ -118,10 +125,11 @@ def calc_pad_size(size: int, bounds: int = 16) -> int:
 	return (bounds - (size % bounds)) % bounds
 
 def calc_bldr_pad_size(size: int) -> int:
-	return (size + 0xF & 0xFFFFFFF0) - size
+	return ((size + 0xF) & ~0xF) - size
 
 __all__ = [
 	"assemble_patch",
+	"run_command",
 	"decompress_se",
 	"compress_se",
 	"sign_sd_4bl",

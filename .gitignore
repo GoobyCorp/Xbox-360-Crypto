@@ -2,6 +2,7 @@
 /*.log
 /*.txt
 /test.py
+/build_flash.py
 
 /map.txt
 /bin/loaders/patch_loader.bin

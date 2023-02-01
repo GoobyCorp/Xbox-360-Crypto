@@ -498,9 +498,7 @@ _start:
 	KMAKEBRANCH (ldBranchAddr+4)
 1:
     # HDD
-    # .string "\\Device\\Harddisk0\\Partition1\\RGLoader.xex\0"
-    # Flash
-    .string "\\Device\\Flash\\RGLoader.xex\0"
+    .string "\\Device\\Harddisk0\\Partition1\\RGLoader.xex\0"
 2:
 	.align 2
 9:
