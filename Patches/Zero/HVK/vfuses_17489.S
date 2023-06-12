@@ -136,7 +136,7 @@ _start:
 #   Utility Functions (c0z and ikari)
 #============================================================================
 	MAKEPATCH  0x0000B188
-	.set nand_patch_offset, 0x00100000
+	.set nand_fuses_offset, 0x00100000
 	.set HvpGetFlashBaseAddress, 0x0000068C
 	.set HvpFlashCopy, 0x00000484 # XeCryptCopyQwVec(void* dest, void* src, int iter)
 	.set HvpMemCpy, 0x0000A4E0 #  memcpy(void *destination, const void *source, int len)
@@ -149,10 +149,10 @@ _start:
 0:
 	mflr	r8
 	bla		HvpGetFlashBaseAddress
-	oris	r4, r3, nand_patch_offset@h
-	ori		r4, r4, nand_patch_offset@l # source
+	oris	r4, r3, nand_fuses_offset@h
+	ori		r4, r4, nand_fuses_offset@l # source
 
-    # copy fuses from nand_patch_offset to 0x10000 - 0x60 in HV
+    # copy fuses from nand_fuses_offset to 0x10000 - 0x60 in HV
 	lis		r3, 1
 	subi	r3, r3, 0x60
 	# 0x60 bytes, 0xC 64bit vals to copy

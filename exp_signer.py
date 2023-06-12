@@ -105,6 +105,8 @@ def main() -> None:
 
 	sign_exp(args.input, args.ofile, args.keyfile, exp_id=args.expansion_id, encrypt=args.encrypt)
 
+	print("Done!")
+
 if __name__ == "__main__":
 	main()
 

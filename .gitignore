@@ -3,6 +3,7 @@
 /*.txt
 /test.py
 /build_flash.py
+/compression.py
 
 /map.txt
 /bin/loaders/patch_loader.bin

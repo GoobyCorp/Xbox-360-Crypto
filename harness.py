@@ -52,8 +52,6 @@ valid_cpu_key = bytes.fromhex("0F17D09D89EA12B1716E5D134F8266FF")
 invalid_cpu_key = bytes.fromhex("12345678901234567890123456789010")
 
 def sig_create_verify_test(prv_key: PY_XECRYPT_RSA_KEY) -> bool:
-	# key = PY_XECRYPT_RSAPRV_2048(prv_key)
-
 	sig = prv_key.sig_create(rsa_test_hash, rsa_test_salt)
 	print("        RSA signature created OK")
 	print("        RSA signature encrypted OK")

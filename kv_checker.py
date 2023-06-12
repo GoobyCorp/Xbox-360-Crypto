@@ -12,7 +12,6 @@ import logging
 from os import urandom
 from pathlib import Path
 from typing import Union
-from binascii import crc32
 from datetime import datetime
 from argparse import ArgumentParser
 from struct import pack_into, unpack_from
@@ -85,8 +84,8 @@ def compute_client_name(console_id: Union[bytes, bytearray]) -> bytes:
 	return text.encode("ASCII")
 
 def compute_kdc_nonce(key: Union[bytes, bytearray]) -> Union[bytes, bytearray]:
-	key = XeCryptHmacMd5(key, bytes.fromhex("7369676E61747572656B657900"))
-	return XeCryptHmacMd5(key, XeCryptMd5(b"\x02\x04\x00\x00", b"\x00\x00\x00\x00"))
+	key = XeCryptHmacMd5(key, b"signaturekey\x00")
+	return XeCryptHmacMd5(key, XeCryptMd5(bytes.fromhex("02040000"), b"\x00" * 4))
 
 def get_file_time() -> int:
 	dt0 = datetime.strptime("12:00 AM, January 1, 1601 UTC", "%I:%M %p, %B %d, %Y %Z")
@@ -96,7 +95,7 @@ def get_file_time() -> int:
 def generate_timestamp() -> Union[bytes, bytearray]:
 	array = bytearray.fromhex("301AA011180F32303132313231323139303533305AA10502030B3543")
 	s = datetime.utcnow().strftime("%Y%m%d%H%M%S") + "Z"
-	pack_into("<15s", array, 6, s.encode("ASCII"))
+	pack_into("15s", array, 6, s.encode("ASCII"))
 	return array
 
 def get_title_auth_data(key: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> Union[bytes, bytearray]:

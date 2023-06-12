@@ -11,11 +11,10 @@ __version__ = "1.0.0.0"
 __license__ = "BSD"
 __status__ = "Development"
 
-from math import lcm
 from os import urandom
 from enum import IntEnum
 from pathlib import Path
-from typing import Union, Tuple, Optional
+from typing import Union, Tuple, Optional, TypeVar
 from struct import pack, unpack, pack_into, unpack_from, calcsize
 from ctypes import BigEndianStructure, sizeof, c_ubyte, c_uint16, c_uint32, c_uint64
 
@@ -26,8 +25,12 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.ciphers import Cipher
 from cryptography.hazmat.primitives.hashes import MD5, SHA1
 from cryptography.hazmat.primitives.ciphers.modes import ECB, CBC
+# from cryptography.hazmat.primitives.asymmetric.utils import Prehashed
 from cryptography.hazmat.primitives.ciphers.algorithms import ARC4, AES
+# from cryptography.hazmat.primitives.asymmetric.padding import PKCS1v15, PSS, MGF1
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey, RSAPrivateKey, RSAPublicNumbers, RSAPrivateNumbers
+
+BinType = TypeVar("BinType", bytes, bytearray)
 
 # globals
 # constants
@@ -98,24 +101,24 @@ class BLMagic(IntEnum):
 # structures
 class NAND_HEADER(BigEndianStructure):
 	_fields_ = [
-	   ("magic", WORD),
-	   ("build", WORD),
-	   ("qfe", WORD),
-	   ("flags", WORD),
-	   ("entry_point", DWORD),
-	   ("size", DWORD),
-	   ("copyright", (BYTE * 0x40)),
-	   ("padding", (BYTE * 0x10)),
-	   ("kv_length", DWORD),
-	   ("sys_upd_addr", DWORD),
-	   ("patch_slots", WORD),
-	   ("kv_version", WORD),
-	   ("kv_offset", DWORD),
-	   ("patch_slot_size", DWORD),
-	   ("smc_config_offset", DWORD),
-	   ("smc_length", DWORD),
-	   ("smc_offset", DWORD)
-   ]
+		("magic", WORD),
+		("build", WORD),
+		("qfe", WORD),
+		("flags", WORD),
+		("entry", DWORD),
+		("size", DWORD),
+		("copyright", (BYTE * 0x40)),
+		("padding", (BYTE * 0x10)),
+		("kv_length", DWORD),
+		("sys_upd_addr", DWORD),
+		("patch_slots", WORD),
+		("kv_version", WORD),
+		("kv_offset", DWORD),
+		("patch_slot_size", DWORD),
+		("smc_config_offset", DWORD),
+		("smc_length", DWORD),
+		("smc_offset", DWORD)
+	]
 
 class BL_HEADER(BigEndianStructure):
 	_fields_ = [
@@ -123,7 +126,7 @@ class BL_HEADER(BigEndianStructure):
 		("build", WORD),
 		("qfe", WORD),
 		("flags", WORD),
-		("entry_point", DWORD),
+		("entry", DWORD),
 		("size", DWORD)
 	]
 
@@ -246,70 +249,79 @@ def write_file(filename: str, data: Union[str, bytes, bytearray]) -> None:
 	else:
 		p.write_bytes(data)
 
-def reverse(b: Union[bytes, bytearray]) -> Union[bytes, bytearray]:
+def reverse(b: BinType) -> BinType:
 	return bytes(reversed(b))
 
-def b2i(b: Union[bytes, bytearray], bswap: bool = False) -> int:
+def rsa_pad(data: BinType) -> bytes:
+	bounds = 8
+	if len(data) % bounds == 0:
+		return data
+	ps = bounds - (len(data) % bounds)
+	return data + (b"\x00" * ps)
+
+def b2i(b: BinType, bswap: bool = False) -> int:
 	if bswap:
 		b = bswap64(b)
 	return int.from_bytes(b, "little", signed=False)
 
 def i2b(i: int, bswap: bool = False) -> bytes:
 	data = i.to_bytes((i.bit_length() + 7) // 8, "little", signed=False)
+	data = rsa_pad(data)  # sometimes the data isn't evenly divisible by 8
 	if bswap:
 		data = bswap64(data)
 	return data
 
-def bswap(data: Union[bytes, bytearray], fmt: str) -> bytes:
+def bswap(data: BinType, fmt: str) -> bytes:
 	size = calcsize(fmt)
 	assert len(data) % size == 0, "data isn't evenly divisible by size!"
-	out_data = b""
+	b = b""
 	for i in range(0, len(data), size):
-		tmp = b""
+		t = b""
 		for j in range(0, size):
-			tmp += pack("<B", data[i + j])
-		out_data += reverse(tmp)
-	return out_data
+			t += pack("B", data[i + j])
+		b += reverse(t)
+	return b
 
-def bswap16(data: Union[bytes, bytearray]) -> bytes:
+def bswap16(data: BinType) -> bytes:
 	return bswap(data, "H")
 
-def bswap32(data: Union[bytes, bytearray]) -> bytes:
+def bswap32(data: BinType) -> bytes:
 	return bswap(data, "I")
 
-def bswap64(data: Union[bytes, bytearray]) -> bytes:
+def bswap64(data: BinType) -> bytes:
 	return bswap(data, "Q")
 
-def XeCryptBnQw_SwapDwQwLeBe(b: Union[bytes, bytearray]) -> bytes:
+def XeCryptBnQw_SwapDwQwLeBe(b: BinType) -> bytes:
 	return bswap64(b)
 
-def memcmp(b0: Union[bytes, bytearray], b1: Union[bytes, bytearray], size: int) -> bool:
+def memcmp(b0: BinType, b1: BinType, size: int) -> bool:
 	return all([(b0[i] == b1[i]) for i in range(size)])
 
 def rsa_calc_d(e: int, p: int, q: int) -> int:
-	return pow(e, -1, lcm(p - 1, q - 1))
+	phi = (p - 1) * (q - 1)
+	return pow(e, -1, phi)
 
 def XeCryptRandom(cb: int) -> bytes:
 	return urandom(cb)
 
 # hashing
-def XeCryptMd5(*args: Union[bytes, bytearray]) -> bytes:
+def XeCryptMd5(*args: BinType) -> bytes:
 	h = Hash(MD5())
 	[h.update(x) for x in args]
 	return h.finalize()
 
-def XeCryptSha(*args: Union[bytes, bytearray]) -> bytes:
+def XeCryptSha(*args: BinType) -> bytes:
 	h = Hash(SHA1())
 	[h.update(x) for x in args]
 	return h.finalize()
 
 # MAC
-def XeCryptHmacMd5(key: Union[bytes, bytearray], *args: Union[bytes, bytearray]) -> bytes:
+def XeCryptHmacMd5(key: BinType, *args: BinType) -> bytes:
 	h = HMAC(key, MD5())
 	[h.update(x) for x in args]
 	return h.finalize()
 
-def XeCryptHmacSha(key: Union[bytes, bytearray], *args: Union[bytes, bytearray]) -> bytes:
+def XeCryptHmacSha(key: BinType, *args: BinType) -> bytes:
 	h = HMAC(key, SHA1())
 	[h.update(x) for x in args]
 	return h.finalize()
@@ -318,7 +330,7 @@ def XeCryptHmacSha(key: Union[bytes, bytearray], *args: Union[bytes, bytearray])
 class XeCryptRc4:
 	# only works in ECB mode!
 
-	def __init__(self, key: Union[bytes, bytearray]):
+	def __init__(self, key: BinType):
 		self.reset()
 		self._cipher = Cipher(ARC4(key), None)
 		self._enc = self._cipher.encryptor()
@@ -328,17 +340,17 @@ class XeCryptRc4:
 		self._cipher = None
 
 	@staticmethod
-	def new(key: Union[bytes, bytearray]):
+	def new(key: BinType):
 		return XeCryptRc4(key)
 
 	# encrypt and decrypt are exactly the same for RC4
-	def crypt(self, data: Union[bytes, bytearray]) -> bytes:
+	def crypt(self, data: BinType) -> bytes:
 		return self.encrypt(data)
 
-	def encrypt(self, data: Union[bytes, bytearray]) -> bytes:
+	def encrypt(self, data: BinType) -> bytes:
 		return self._enc.update(data)
 
-	def decrypt(self, data: Union[bytes, bytearray]) -> bytes:
+	def decrypt(self, data: BinType) -> bytes:
 		return self._dec.update(data)
 
 # AES
@@ -346,7 +358,7 @@ class XeCryptAes:
 	MODE_ECB = 1
 	MODE_CBC = 2
 
-	def __init__(self, key: Union[bytes, bytearray], mode: Optional[int] = MODE_ECB, iv: Optional[Union[bytes, bytearray]] = None):
+	def __init__(self, key: BinType, mode: Optional[int] = MODE_ECB, iv: Optional[BinType] = None):
 		self.reset()
 		if mode == self.MODE_ECB:
 			self._cipher = Cipher(AES(key), ECB())
@@ -362,17 +374,17 @@ class XeCryptAes:
 		self._cipher = None
 
 	@staticmethod
-	def new(key: Union[bytes, bytearray], mode: int = MODE_ECB, iv: Union[bytes, bytearray] = None):
+	def new(key: BinType, mode: int = MODE_ECB, iv: BinType = None):
 		return XeCryptAes(key, mode, iv)
 
-	def encrypt(self, data: Union[bytes, bytearray]) -> bytes:
+	def encrypt(self, data: BinType) -> bytes:
 		return self._enc.update(data)
 
-	def decrypt(self, data: Union[bytes, bytearray]) -> bytes:
+	def decrypt(self, data: BinType) -> bytes:
 		return self._dec.update(data)
 
 # checksums
-def XeCryptRotSum(data: Union[bytes, bytearray]) -> bytes:
+def XeCryptRotSum(data: BinType) -> bytes:
 	cqwInp = len(data) // 8
 	if cqwInp != 0:
 		qw1 = 0
@@ -397,25 +409,18 @@ def XeCryptRotSum(data: Union[bytes, bytearray]) -> bytes:
 			qw4 &= UINT64_MASK
 		return pack(">4Q", qw1, qw2, qw3, qw4)
 
-def XeCryptRotSumSha(data: Union[bytes, bytearray]) -> bytes:
+def XeCryptRotSumSha(data: BinType) -> bytes:
 	h = Hash(SHA1())
 	rot_sum = bytearray(XeCryptRotSum(data))
-	h.update(rot_sum + rot_sum + data)
-	for i in range(0x20):
-		rot_sum[i] = (~rot_sum[i] & 0xFF)
-	h.update(rot_sum + rot_sum)
+	h.update(rot_sum)
+	h.update(rot_sum)
+	h.update(data)
+	rot_sum = bytes(map(lambda b: ~b & 0xFF, rot_sum))
+	h.update(rot_sum)
+	h.update(rot_sum)
 	return h.finalize()
 
 # RSA
-def XeCryptMulHdu(val1: int, val2: int) -> Tuple[int, int]:
-	val1 &= UINT64_MASK
-	val2 &= UINT64_MASK
-	a = val1 * val2
-	a &= UINT128_MASK
-	hi_val = (a >> 64) & UINT64_MASK
-	lo_val = a & UINT64_MASK
-	return (hi_val, lo_val)
-
 def XeCryptBnQwNeModInv(val: int) -> int:
 	t1 = val * 3
 	t2 = t1 ^ 2
@@ -442,23 +447,27 @@ def XeCryptBnQwNeModExpRoot(data: int, p: int, q: int, dp: int, dq: int, cr: int
 	m = (m2 + (h * q)) % (p * q)
 	return m
 
-def BnQwBeBufSwap(data: Union[bytes, bytearray], cqw: int) -> bytes:
-	data = bytearray(data)
+def XeCryptBnQwBeBufSwap(data: BinType) -> bytes:
+	assert len(data) % 8 == 0
+	if isinstance(data, bytes):
+		data = bytearray(data)
+	cqw = len(data) // 8
 	pstart = 0
 	pend = (cqw - 1) * 8
-	for i in range(cqw // 2):
-		val1 = unpack(">Q", data[pstart:pstart + 8])[0]
-		val2 = unpack(">Q", data[pend:pend + 8])[0]
-		pack_into(">Q", data, pend, val1)
-		pack_into(">Q", data, pstart, val2)
+	for _ in range(cqw // 2):
+		(val1,) = unpack("8s", data[pstart:pstart + 8])
+		(val2,) = unpack("8s", data[pend:pend + 8])
+		pack_into("8s", data, pend, val1)
+		pack_into("8s", data, pstart, val2)
 		pend -= 8
 		pstart += 8
 	return data
 
-def XeCryptBnQwNeRsaKeyGen(cbits: int = 2048, dwPubExp: int = 0x10001) -> Tuple[bytes, bytes]:
-	prv_key = rsa.generate_private_key(dwPubExp, cbits)
-	mod_size = prv_key.key_size
-	cqw = mod_size // 8
+def XeCryptBnQwNeRsaKeyGen(cbits: int = 2048, exp: int = 0x10001) -> Tuple[bytes, bytes]:
+	assert cbits in [1024, 1536, 2048, 4096], "Invalid bit count specified!"
+	prv_key = rsa.generate_private_key(exp, cbits)
+	# mod_size = prv_key.key_size
+	cqw = prv_key.key_size // 8
 
 	pub_n = prv_key.public_key().public_numbers()
 	prv_n = prv_key.private_numbers()
@@ -468,40 +477,40 @@ def XeCryptBnQwNeRsaKeyGen(cbits: int = 2048, dwPubExp: int = 0x10001) -> Tuple[
 	q = i2b(prv_n.q, True)
 	dp = i2b(prv_n.dmp1, True)
 	dq = i2b(prv_n.dmq1, True)
-	u = i2b(pow(prv_n.q, -1, prv_n.p), True)
+	u = i2b(pow(prv_n.p, -1, prv_n.q), True)
 
 	mod_inv = XeCryptBnQwNeModInv(pub_n.n)
 	mod_inv &= UINT64_MASK
 
 	if cbits == 1024:
-		b_prv_key = pack(">2IQ 128s 64s 64s 64s 64s 64s", cqw, dwPubExp, mod_inv, n, p, q, dp, dq, u)
+		b_prv_key = pack(">2IQ 128s 64s 64s 64s 64s 64s", cqw, exp, mod_inv, n, p, q, dp, dq, u)
 		return (b_prv_key[:XECRYPT_RSAPUB_1024_SIZE], b_prv_key)
 	elif cbits == 1536:
-		b_prv_key = pack(">2IQ 192s 96s 96s 96s 96s 96s", cqw, dwPubExp, mod_inv, n, p, q, dp, dq, u)
+		b_prv_key = pack(">2IQ 192s 96s 96s 96s 96s 96s", cqw, exp, mod_inv, n, p, q, dp, dq, u)
 		return (b_prv_key[:XECRYPT_RSAPUB_1536_SIZE], b_prv_key)
 	elif cbits == 2048:
-		b_prv_key = pack(">2IQ 256s 128s 128s 128s 128s 128s", cqw, dwPubExp, mod_inv, n, p, q, dp, dq, u)
+		b_prv_key = pack(">2IQ 256s 128s 128s 128s 128s 128s", cqw, exp, mod_inv, n, p, q, dp, dq, u)
 		return (b_prv_key[:XECRYPT_RSAPUB_2048_SIZE], b_prv_key)
 	elif cbits == 4096:
-		b_prv_key = pack(">2IQ 512s 256s 256s 256s 256s 256s", cqw, dwPubExp, mod_inv, n, p, q, dp, dq, u)
+		b_prv_key = pack(">2IQ 512s 256s 256s 256s 256s 256s", cqw, exp, mod_inv, n, p, q, dp, dq, u)
 		return (b_prv_key[:XECRYPT_RSAPUB_4096_SIZE], b_prv_key)
 
-def XeCryptBnQwBeSigFormat(cqw: int, b_hash: Union[bytes, bytearray], salt: Union[bytes, bytearray]) -> bytes:
+def XeCryptBnQwBeSigFormat(cqw: int, b_hash: BinType, salt: BinType) -> bytes:
 	sig = bytearray(cqw * 8)
 
 	h = Hash(SHA1())
 	h.update(bytes(8) + b_hash + salt)
 	ab_hash = h.finalize()
 
-	pack_into("<B", sig, 0xE0, 1)
-	pack_into("<10s", sig, 0xE1, salt)
-	pack_into("<235s", sig, 0, XeCryptRc4.new(ab_hash).encrypt(sig[:0xEB]))
-	pack_into("<20s", sig, 0xEB, ab_hash)
-	pack_into("<B", sig, 0xFF, 0xBC)
+	pack_into("B", sig, 0xE0, 1)
+	pack_into("10s", sig, 0xE1, salt)
+	pack_into("235s", sig, 0, XeCryptRc4.new(ab_hash).encrypt(sig[:0xEB]))
+	pack_into("20s", sig, 0xEB, ab_hash)
+	pack_into("B", sig, 0xFF, 0xBC)
 	sig[0] &= 0x7F
-	return BnQwBeBufSwap(sig, 0x100 // 8)
+	return XeCryptBnQwBeBufSwap(sig)
 
-def XeCryptBnQwBeSigCreate(b_hash: Union[bytes, bytearray], salt: Union[bytes, bytearray], prv_key: Union[bytes, bytearray]) -> Union[bytes, None]:
+def XeCryptBnQwBeSigCreate(b_hash: BinType, salt: BinType, prv_key: BinType) -> Union[bytes, None]:
 	key = PY_XECRYPT_RSA_KEY(prv_key)
 	if key.cqw != 0x20:  # PXECRYPT_RSAPRV_2048
 		return None
@@ -510,97 +519,98 @@ def XeCryptBnQwBeSigCreate(b_hash: Union[bytes, bytearray], salt: Union[bytes, b
 		return None
 
 	sig = XeCryptBnQwBeSigFormat(key.cqw, b_hash, salt)
-	if sig == bytes(key.key_struct.n):
+	if sig == bytes(key.n_size_in_bytes):
 		return None
 
-	x = b2i(sig, True)
-	r = pow(2, (((key.e & UINT32_MASK) - 1) << 11), key.n)
-	sig = (x * r) % key.n  # convert out
-	return i2b(sig, True)
+	si = b2i(sig, True)
+	se = (si * key.r) % key.n  # convert out
+	sb = i2b(se, True)
+	return sb
 
-def XeCryptBnQwBeSigVerify(sig: Union[bytes, bytearray], b_hash: Union[bytes, bytearray], salt: Union[bytes, bytearray], pub_key: Union[bytes, bytearray]) -> bool:
+def XeCryptBnQwBeSigVerify(sig: BinType, b_hash: BinType, salt: BinType, pub_key: BinType) -> bool:
 	key = PY_XECRYPT_RSA_KEY(pub_key)
 
 	if key.cqw != 0x20:  # PXECRYPT_RSAPRV_2048
 		return False
 
-	r = pow(2, (((key.e & UINT32_MASK) - 1) << 11), key.n)
-	r_inv = pow(r, -1, key.n)
+	si = b2i(sig, True)
+	s0 = pow(si, key.e, key.n)  # reverse of pow(sig, key.d, key.n)
+	s0 = (s0 * key.inv_r) % key.n  # reverse of (x * key.r) % key.n
+	sb = i2b(s0, True)
 
-	s0 = b2i(sig, True)
-	s1 = pow(s0, key.e, key.n)  # reverse of pow(sig, key.d, key.n)
-	s1 = (s1 * r_inv) % key.n  # reverse of (x * r) % key.n
-	s2 = i2b(s1, True)
+	sd = XeCryptBnQwBeBufSwap(sb)
 
-	sig_dec = BnQwBeBufSwap(s2, key.cqw)
-
-	if sig_dec[0xFF] != 0xBC:
+	if sd[0xFF] != 0xBC:
 		return False
 
 	h = Hash(SHA1())
 	h.update(bytes(8) + b_hash + salt)
-	if h.finalize() != sig_dec[0xEB:-1]:
+	if h.finalize() != sd[0xEB:-1]:
 		return False
 
-	sig_dec = XeCryptRc4.new(sig_dec[0xEB:-1]).decrypt(sig_dec[:0xEB])
+	sd = XeCryptRc4.new(sd[0xEB:-1]).decrypt(sd[:0xEB])
 
-	if sig_dec[0xE0] != 1:
+	if sd[0xE0] != 1:
 		return False
 
-	if not all([x == 0 for x in sig_dec[1:0xE0]]):
+	if not all([x == 0 for x in sd[1:0xE0]]):
 		return False
 
-	if sig_dec[0xE1:0xE1 + len(salt)] != salt:
+	if sd[0xE1:0xE1 + len(salt)] != salt:
 		return False
 
 	return True
 
-def XeCryptBnDwLePkcs1Format(b_hash: Union[bytes, bytearray], fmt_type: int, sig: Union[bytes, bytearray], cb_sig: int) -> Union[bytes, None]:
+def XeCryptBnDwLePkcs1Format(b_hash: BinType, fmt_type: int, cb_sig: int) -> Union[bytes, None]:
 	if cb_sig < 0x27 or cb_sig > 0x200:
 		return
 
-	# sig = bytearray(0x200)
-	pack_into(f"<{cb_sig}s", sig, 0, (b"\xFF" * cb_sig))
+	sig = bytearray(0x200)
+	# pack_into(f"{cb_sig}s", sig, 0, (b"\xFF" * cb_sig))
+	sig[:cb_sig] = (b"\xFF" * cb_sig)
 	sig[cb_sig - 1] = 0
 	sig[cb_sig - 2] = 1
-	pack_into("<20s", sig, 0, b_hash[::-1])
+	pack_into("20s", sig, 0, b_hash[::-1])
 	if fmt_type == 0:
 		tbuf = bytes.fromhex("140400051A02030E2B05060930213000")
-		pack_into(f"<{len(tbuf)}s", sig, 0x14, tbuf)
+		# pack_into(f"{len(tbuf)}s", sig, 0x14, tbuf)
+		sig[0x14:0x14 + len(tbuf)] = tbuf
 	elif fmt_type == 1:
 		tbuf = bytes.fromhex("14041A02030E2B050607301F3000")
-		pack_into(f"<{len(tbuf)}s", sig, 0x14, tbuf)
+		# pack_into(f"{len(tbuf)}s", sig, 0x14, tbuf)
+		sig[0x14:0x14 + len(tbuf)] = tbuf
 	else:
 		sig[0x14] = 0
 	return sig
 
-def XeCryptBnDwLePkcs1Verify(sig: Union[bytes, bytearray], b_hash: Union[bytes, bytearray], cb_sig: int) -> bool:
+def XeCryptBnDwLePkcs1Verify(sig: BinType, b_hash: BinType, cb_sig: int) -> bool:
 	if len(sig) >= 0x27 and len(sig) <= 0x200:
-		buf = bytearray(0x200)
+		# buf = bytearray(0x200)
 		typ = 2
 		if sig[0x16] == 0:
 			typ = 0
 		elif sig[0x16] == 0x1A:
 			typ = 1
-		buf = XeCryptBnDwLePkcs1Format(b_hash, typ, buf, cb_sig)
+		buf = XeCryptBnDwLePkcs1Format(b_hash, typ, cb_sig)
 		return memcmp(buf, sig, cb_sig)
 
-def XeKeysPkcs1Create(b_hash: Union[bytes, bytearray], prv_key: Union[bytes, bytearray]) -> Union[bytes, None]:
+def XeKeysPkcs1Create(b_hash: BinType, prv_key: BinType) -> Union[bytes, None]:
 	key = PY_XECRYPT_RSA_KEY(prv_key)
-	sig = bytearray(key.n_size_in_bytes)
+	# sig = bytearray(key.n_size_in_bytes)
 	if key.cqw != 0 and key.cqw <= 0x40:
-		buf = bytearray(0x200)
-		typ = 2
-		if sig[0x16] == 0:
-			typ = 0
-		elif sig[0x16] == 0x1A:
-			typ = 1
-		buf = XeCryptBnDwLePkcs1Format(b_hash, typ, buf, key.cqw << 3)
+		# buf = bytearray(0x200)
+		#typ = 2
+		#if sig[0x16] == 0:
+		#	typ = 0
+		#elif sig[0x16] == 0x1A:
+		#	typ = 1
+		typ = 0
+		buf = XeCryptBnDwLePkcs1Format(b_hash, typ, key.cqw << 3)
 		buf = XeCryptBnQw_SwapDwQwLeBe(buf)
 		buf = XeCryptBnQwNeRsaPrvCrypt(buf, prv_key)
 		return XeCryptBnQw_SwapDwQwLeBe(buf)
 
-def XeKeysPkcs1Verify(sig: Union[bytes, bytearray], b_hash: Union[bytes, bytearray], pub_key: Union[bytes, bytearray]) -> bool:
+def XeKeysPkcs1Verify(sig: BinType, b_hash: BinType, pub_key: BinType) -> bool:
 	key = PY_XECRYPT_RSA_KEY(pub_key)
 	if key.cqw != 0 and key.cqw <= 0x40:
 		buf = bytearray(0x200)
@@ -608,22 +618,20 @@ def XeKeysPkcs1Verify(sig: Union[bytes, bytearray], b_hash: Union[bytes, bytearr
 		buf = XeCryptBnQwNeRsaPubCrypt(buf, pub_key)
 		buf = XeCryptBnQw_SwapDwQwLeBe(buf)
 		return XeCryptBnDwLePkcs1Verify(buf, b_hash, key.cqw << 3)
-
 	return False
 
-def XeCryptBnQwNeRsaPrvCrypt(data: Union[bytes, bytearray], prv_key: Union[bytes, bytearray]) -> Union[bytes, bool]:
+def XeCryptBnQwNeRsaPrvCrypt(data: BinType, prv_key: BinType) -> Union[bytes, bool]:
 	key = PY_XECRYPT_RSA_KEY(prv_key)
-	data = b2i(data, True)
-	return bswap64(XeCryptBnQwNeModExpRoot(data, key.p, key.q, key.dp, key.dq, key.u).to_bytes(key.cqw * 8, "little", signed=False))
+	return bswap64(XeCryptBnQwNeModExpRoot(b2i(data, True), key.p, key.q, key.dp, key.dq, key.u).to_bytes(key.cqw * 8, "little", signed=False))
 
-def XeCryptBnQwNeRsaPubCrypt(data: Union[bytes, bytearray], pub_key: Union[bytes, bytearray]) -> Union[bytes, bool]:
+def XeCryptBnQwNeRsaPubCrypt(data: BinType, pub_key: BinType) -> Union[bytes, bool]:
 	key = PY_XECRYPT_RSA_KEY(pub_key)
 	data = b2i(data, True)
 	data = pow(data, key.e & 0xFFFFFFFF, key.n)
 	return bswap64(data.to_bytes(key.cqw * 8, "little", signed=False))
 
 # Utility
-def XeCryptSmcDecrypt(data: Union[bytes, bytearray]) -> Union[bytes, bytearray]:
+def XeCryptSmcDecrypt(data: BinType) -> BinType:
 	res = b""
 	key = list(XECRYPT_SMC_KEY)
 	for i in range(0, len(data)):
@@ -634,7 +642,7 @@ def XeCryptSmcDecrypt(data: Union[bytes, bytearray]) -> Union[bytes, bytearray]:
 		key[(i + 2) & 3] += mod >> 8
 	return res
 
-def XeCryptSmcEncrypt(data: Union[bytes, bytearray]) -> Union[bytes, bytearray]:
+def XeCryptSmcEncrypt(data: BinType) -> BinType:
 	res = b""
 	key = list(XECRYPT_SMC_KEY)
 	for i in range(0, len(data)):
@@ -645,7 +653,7 @@ def XeCryptSmcEncrypt(data: Union[bytes, bytearray]) -> Union[bytes, bytearray]:
 		key[(i + 2) & 3] += mod >> 8
 	return res
 
-def XeCryptHammingWeight(data: Union[bytes, bytearray]) -> int:
+def XeCryptHammingWeight(data: BinType) -> int:
 	wght = 0
 	for i in range(len(data)):
 		val = data[i]
@@ -654,7 +662,7 @@ def XeCryptHammingWeight(data: Union[bytes, bytearray]) -> int:
 			val >>= 1
 	return wght
 
-def XeCryptUidEccEncode(data: Union[bytes, bytearray]) -> bytes:
+def XeCryptUidEccEncode(data: BinType) -> bytes:
 	data = bytearray(data)
 	acc1 = 0
 	acc2 = 0
@@ -676,7 +684,7 @@ def XeCryptUidEccEncode(data: Union[bytes, bytearray]) -> bytes:
 	return data
 
 # additions to the XeCrypt library that didn't exist in the original
-def XeCryptCpuKeyValid(cpu_key: Union[bytes, bytearray]) -> bool:
+def XeCryptCpuKeyValid(cpu_key: BinType) -> bool:
 	if len(cpu_key) != 0x10:
 		return False
 
@@ -690,7 +698,7 @@ def XeCryptCpuKeyValid(cpu_key: Union[bytes, bytearray]) -> bool:
 	wght_good = (wght == 0x35)
 	return ecc_good and wght_good
 
-def XeCryptCpuKeyGen() -> Union[bytes, bytearray]:
+def XeCryptCpuKeyGen() -> BinType:
 	key = bytearray(0x10)
 	for dw_unset_count in range(0x35):
 		dw_rand = int.from_bytes(urandom(4), "little") % ((~dw_unset_count) + 0x6A + 1)
@@ -705,21 +713,21 @@ def XeCryptCpuKeyGen() -> Union[bytes, bytearray]:
 		key[(bit_pos >> 3) & 0x1F] = (1 << (bit_pos & 0x7)) ^ key[(bit_pos >> 3) & 0x1F]
 	return XeCryptUidEccEncode(key)
 
-def XeCryptKeyVaultDecrypt(cpu_key: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bytes:
+def XeCryptKeyVaultDecrypt(cpu_key: BinType, data: BinType) -> bytes:
 	assert XeCryptCpuKeyValid(cpu_key), "Invalid CPU key"
-	version = bytes([0x7, 0x12])
+	version = bytes.fromhex("0712")
 	kv_hash = XeCryptHmacSha(cpu_key, data[:0x10])[:0x10]
 	data = data[:0x10] + XeCryptRc4.new(kv_hash).decrypt(data[0x10:])
 	kv_hash = XeCryptHmacSha(cpu_key, data[0x10:], version)[:0x10]
 	assert data[:0x10] == kv_hash, "Invalid KV digest"
 	return data
 
-def XeCryptKeyVaultEncrypt(cpu_key: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bytes:
+def XeCryptKeyVaultEncrypt(cpu_key: BinType, data: BinType) -> bytes:
 	if type(data) == bytes:
 		data = bytearray(data)
 
 	assert XeCryptCpuKeyValid(cpu_key), "Invalid CPU key"
-	version = bytes([0x7, 0x12])
+	version = bytes.fromhex("0712")
 	# random nonce
 	pack_into("8s", data, 0, XeCryptRandom(0x10))
 	# random obfuscation key
@@ -728,13 +736,13 @@ def XeCryptKeyVaultEncrypt(cpu_key: Union[bytes, bytearray], data: Union[bytes, 
 	rc4_key = XeCryptHmacSha(cpu_key, data[:0x10])[:0x10]
 	return bytes(data[:0x10]) + XeCryptRc4.new(rc4_key).encrypt(data[0x10:])
 
-def XeCryptKeyVaultVerify(cpu_key: Union[bytes, bytearray], data: Union[bytes, bytearray], pub_key: Union[bytes, bytearray]) -> bool:
+def XeCryptKeyVaultVerify(cpu_key: BinType, data: BinType, pub_key: BinType) -> bool:
 	assert XeCryptCpuKeyValid(cpu_key), "Invalid CPU key"
 	kv_data = data[0x18:]
 	kv_hash = XeCryptHmacSha(cpu_key, kv_data[4:4 + 0xD4], kv_data[0xE8:0xE8 + 0x1CF8], kv_data[0x1EE0:0x1EE0 + 0x2108])
 	return XeKeysPkcs1Verify(kv_data[0x1DE0:0x1DE0 + 0x100], kv_hash, pub_key)
 
-def XeCryptPageEccEncode(data: Union[bytes, bytearray]) -> bytes:
+def XeCryptPageEccEncode(data: BinType) -> bytes:
 	if type(data) == bytes:
 		data = bytearray(data)
 
@@ -765,7 +773,7 @@ class BLHeader:
 
 	nonce = None
 
-	def __init__(self, data: Union[bytes, bytearray], include_nonce: bool = True):
+	def __init__(self, data: BinType, include_nonce: bool = True):
 		self.include_nonce = include_nonce
 		self.reset()
 		self.parse(data)
@@ -800,14 +808,14 @@ class BLHeader:
 		return 0x10
 
 	@property
-	def padding_size(self) -> int:
-		return (16 - (self.size % 16)) % 16
+	def padded_size(self) -> int:
+		return (self.size + 0xF) & ~0xF
 
 	@property
 	def requires_padding(self) -> bool:
-		return self.padding_size > 0
+		return self.padded_size > 0
 
-	def parse(self, data: Union[bytes, bytearray]):
+	def parse(self, data: BinType):
 		(self.magic, self.build, self.qfe, self.flags, self.entry_point, self.size) = unpack_from(">2s 3H 2I", data, 0)
 		if self.include_nonce:
 			(self.nonce,) = unpack_from("16s", data, 0x10)
@@ -827,7 +835,7 @@ class PY_XECRYPT_RSA_KEY:
 	rsa_struct = None
 	key_struct = None
 
-	def __init__(self, data: Union[bytes, bytearray] = None):
+	def __init__(self, data: BinType = None):
 		self.reset()
 
 		self.key_bytes = data
@@ -931,23 +939,31 @@ class PY_XECRYPT_RSA_KEY:
 		return int.from_bytes(bswap64(bytes(self.key_struct.cr)), "little", signed=False)
 
 	@property
-	def inv_q(self) -> int:
-		return pow(self.q, -1, self.p)
+	def r(self) -> int:
+		return pow(2, (((self.e & UINT32_MASK) - 1) << 11), self.n)
 
-	def sig_create(self, hash: Union[bytes, bytearray], salt: Union[bytes, bytearray]) -> bytes:
+	@property
+	def inv_r(self) -> int:
+		return pow(self.r, -1, self.n)
+
+	@property
+	def inv_q(self) -> int:
+		return pow(self.p, -1, self.q)
+
+	def sig_create(self, hash: BinType, salt: BinType) -> bytes:
 		assert self.is_private_key, "Key isn't a private key!"
 		sig = XeCryptBnQwBeSigCreate(hash, salt, self.key_bytes)
 		return XeCryptBnQwNeRsaPrvCrypt(sig, self.key_bytes)
 
-	def sig_verify(self, sig: Union[bytes, bytearray], hash: Union[bytes, bytearray], salt: Union[bytes, bytearray]) -> bool:
+	def sig_verify(self, sig: BinType, hash: BinType, salt: BinType) -> bool:
 		pub_key = self.key_bytes[:(self.cqw * 8) + 0x10]
 		return XeCryptBnQwBeSigVerify(sig, hash, salt, pub_key)
 
-	def pkcs1_sig_create(self, hash: Union[bytes, bytearray]) -> bytes:
+	def pkcs1_sig_create(self, hash: BinType) -> bytes:
 		assert self.is_private_key, "Key isn't a private key!"
 		return XeKeysPkcs1Create(hash, self.key_bytes)
 
-	def pkcs1_sig_verify(self, sig: Union[bytes, bytearray], hash: Union[bytes, bytearray]) -> bool:
+	def pkcs1_sig_verify(self, sig: BinType, hash: BinType) -> bool:
 		pub_key = self.key_bytes[:(self.cqw * 8) + 0x10]
 		return XeKeysPkcs1Verify(sig, hash, pub_key)
 
@@ -1037,7 +1053,6 @@ __all__.extend([
 	"XeCryptKeyVaultEncrypt",
 	"XeCryptKeyVaultVerify",
 	"XeCryptMd5",
-	"XeCryptMulHdu",
 	"XeCryptPageEccEncode",
 	"XeCryptRandom",
 	"XeCryptRc4",

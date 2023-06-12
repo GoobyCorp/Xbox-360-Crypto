@@ -4,6 +4,7 @@ from os import urandom
 from os.path import isfile
 from struct import pack, pack_into
 from argparse import ArgumentParser
+from keystore import load_and_verify_hvx_prv
 
 from XeCrypt import *
 
@@ -20,7 +21,7 @@ def main() -> None:
 
 	assert isfile(args.input), "The specified input file doesn't exist"
 
-	hvx_prv = read_file("Keys/HVX_prv.bin")
+	hvx_prv = load_and_verify_hvx_prv()
 	payload = read_file(args.input)
 	hvx_key = urandom(0x10)
 
@@ -31,12 +32,11 @@ def main() -> None:
 	payload = bytearray(hvx_hdr + payload)
 
 	b_hash = XeCryptRotSumSha(payload[:0x10] + payload[0x120:])[:0x14]
-	sig = XeCryptBnQwBeSigCreate(b_hash, PAYLOAD_SALT, hvx_prv)
-	sig = XeCryptBnQwNeRsaPrvCrypt(sig, hvx_prv)
-	pack_into("<%ss" % (len(sig)), payload, 0x20, sig)
+	sig = hvx_prv.sig_create(b_hash, PAYLOAD_SALT)
+	pack_into("%ss" % (len(sig)), payload, 0x20, sig)
 	rc4_key = XeCryptHmacSha(XECRYPT_1BL_KEY, hvx_key)[:0x10]
 	enc_payload = XeCryptRc4.new(rc4_key).encrypt(payload[0x20:])
-	pack_into("<%ss" % (len(enc_payload)), payload, 0x20, enc_payload)
+	pack_into("%ss" % (len(enc_payload)), payload, 0x20, enc_payload)
 
 	# write the signed payload to disk
 	write_file(args.output, payload)

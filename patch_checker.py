@@ -37,8 +37,10 @@ def write_file(filename: str, data: (bytes, bytearray)) -> None:
 	with open(filename, "wb") as f:
 		f.write(data)
 
-def main() -> None:
+def main() -> int:
 	eval_patches(read_file("Output/Zero/HVK.bin"))
+	# eval_patches(read_file("Output/Zero/cd_9452.bin"))
+	return 0
 
 if __name__ == "__main__":
-	main()
+	exit(main())

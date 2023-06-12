@@ -236,16 +236,17 @@ class ShadowbootImage:
 	def map_shadowboot(self) -> None:
 		self.img_map["SMC"] = {"offset": self.nand_header.smc_offset, "size": self.nand_header.smc_length}
 		self.img_map["KV"] = {"offset": self.nand_header.kv_offset, "size": self.nand_header.kv_length}
-		self._stream.seek(self.nand_header.entry_point)
+		self._stream.seek(self.nand_header.entry)
 		for i in range(4):
 			# all of them are the same
 			hdr = BLHeader(self._stream.read(0x20))
 			bl_name = hdr.magic.decode("UTF8")
-			self.img_map[bl_name] = {"offset": self._stream.tell() - hdr.header_size, "size": hdr.size, "header": hdr}
-			self.img_map[bl_name]["pad_size"] = (hdr.size + 0xF) & ~0xF
-
-			# print(hex(self.img_map[bl_name]["size"]))
-			# print(hex(self.img_map[bl_name]["pad_size"]))
+			self.img_map[bl_name] = {
+				"offset": self._stream.tell() - hdr.header_size,
+				"size": hdr.size,
+				"pad_size": hdr.padded_size,
+				"header": hdr
+			}
 
 			# derive keys
 			if bl_name == "SB":
@@ -546,7 +547,7 @@ def main() -> int:
 			hvk_patches_file = args.build_dir / "hvk.bin"
 		else:
 			print("Building requires -m or -b arguments!")
-			return
+			return 1
 
 		# check for the base image and load it if it exists
 		base_img = None
@@ -633,7 +634,7 @@ def main() -> int:
 		nand_header.build = build_ver
 		nand_header.qfe = 0x8000
 		nand_header.flags = 0
-		nand_header.entry_point = 0x8000
+		nand_header.entry = 0x8000
 
 		nand_header.copyright = (c_ubyte * 0x40)(*copyright)
 		nand_header.sys_upd_addr = 0xD4000
@@ -681,7 +682,7 @@ def main() -> int:
 
 		# write SB
 		sb_offset = len(new_img)
-		nand_header.entry_point = sb_offset
+		# nand_header.entry_point = sb_offset
 		print(f"Encrypting and writing SB @ 0x{sb_offset:04X}...")
 		nonce_sb = bytearray(sb_data)
 		pack_into("<16s", nonce_sb, 0x10, new_sb_nonce)
