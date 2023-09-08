@@ -68,7 +68,7 @@ def main() -> int:
 
 	base_dir = Path(f"Output/Extracted/{con_rev}/")
 
-	sd_data = (base_dir / "sd_17489.bin").read_bytes()
+	sd_data = (base_dir / "SD.bin").read_bytes()
 	se_data = (base_dir / "hypervisor.bin").read_bytes() + (base_dir / "kernel.exe").read_bytes()
 	se_patch_data = Path("Output/Zero/VRGL.bin").read_bytes()
 
@@ -83,8 +83,8 @@ def main() -> int:
 	Path(f"xeBuild_1.21/Builds/17559 - RGL/bootloaders/rgl/{con_rev.lower()}bl/se_17559.bin").write_bytes(se_data)
 	# output XeBuild checksums
 	print(f"[{con_rev.lower()}bl]")
-	print(f"bootloaders/rgl/{con_rev.lower()}bl/sd_17489.bin,{crc32(sd_data[:sd_len_nopad]):08x}")
-	print(f"bootloaders/rgl/{con_rev.lower()}bl/se_17559.bin,{crc32(se_data[:se_len_nopad]):08x}")
+	print(f"bootloaders/devkit/jasperbl_rgl/{con_rev.lower()}bl/sd_17489.bin,{crc32(sd_data[:sd_len_nopad]):08x}")
+	print(f"bootloaders/devkit/jasperbl_rgl/{con_rev.lower()}bl/se_17559.bin,{crc32(se_data[:se_len_nopad]):08x}")
 
 	return 0
 

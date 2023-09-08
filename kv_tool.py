@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
+from struct import pack
 from enum import IntEnum
 from pathlib import Path
-from struct import pack, pack_into
 
 from XeCrypt import XeCryptCpuKeyGen, XeCryptKeyVaultEncrypt
 
@@ -23,12 +23,13 @@ def set_fuseline(fuse_data: bytes | bytearray, line: int, value: str | int | byt
 		value = bytes.fromhex(value)
 
 	assert len(value) == 8, "Invalid fuse line"
-	pack_into("8s", fuse_data, line * 8, value)
+	fuse_data[(line * 8):(line * 8) + 8] = value
+
 	return fuse_data
 
-def main() -> None:
-	cpu_key = bytes.fromhex("0FEF011FE8D81637433C14AFC18FC807")  # XeCryptCpuKeyGen()
-	dvd_key = bytes.fromhex("C7F720142AB22847757398FEB4AECDD1")
+def main() -> int:
+	cpu_key = bytes.fromhex("EDD52AE49E4E0FAA3B186288DC8E5715")  # XeCryptCpuKeyGen() 50542B1369572BAEBDB26405FBDA1622
+	dvd_key = bytes.fromhex("8E168C4DBB56F38B66CB66B7B4F60441")
 	console_type = ConsoleType.DEVKIT
 
 	print("CPU key: " + cpu_key.hex().upper())
@@ -38,30 +39,30 @@ def main() -> None:
 	fuse_data = bytearray(12 * 8)
 	# ("8s", fuse_data, 0, bytes.fromhex("C0FFFFFFFFFFFFFF"))  # line #1
 	fuse_data = set_fuseline(fuse_data, 0, "C0FFFFFFFFFFFFFF")  # line #1
-	pack_into("1s", fuse_data, 0x38, b"\xF0")  # line #8
+	fuse_data[0x38:0x38 + 1] = b"\xF0"
 
 	# read the KV
 	kv_path = Path("KV/banned.bin")
 	kv_data = bytearray(kv_path.read_bytes())
 
 	# update the DVD key
-	pack_into("16s", kv_data, 0x100, dvd_key)
+	kv_data[0x100:0x100 + 0x10] = dvd_key
+
 	# encrypt the KV with the specified CPU key
 	kv_data = XeCryptKeyVaultEncrypt(cpu_key, kv_data)
 
 	# update console type
-	pack_into("6s", fuse_data, 8, bytes.fromhex("0F0F0F0F0F0F"))
+	fuse_data[8:8 + 6] = bytes.fromhex("0F0F0F0F0F0F")
 	if console_type == ConsoleType.TEST_KIT:
-		pack_into("2s", fuse_data, 0xE, bytes.fromhex("F00F"))
+		fuse_data[0xE:0xE + 2] = bytes.fromhex("F00F")
 	elif console_type == ConsoleType.DEVKIT:
-		pack_into("2s", fuse_data, 0xE, bytes.fromhex("0F0F"))
+		fuse_data[0xE:0xE + 2] = bytes.fromhex("0F0F")
 	elif console_type == ConsoleType.RETAIL_PHAT:
-		pack_into("2s", fuse_data, 0xE, bytes.fromhex("0FF0"))
+		fuse_data[0xE:0xE + 2] = bytes.fromhex("0FF0")
 	elif console_type == ConsoleType.RETAIL_SLIM:
-		pack_into("2s", fuse_data, 0xE, bytes.fromhex("F0F0"))
+		fuse_data[0xE:0xE + 2] = bytes.fromhex("F0F0")
 
 	# update CPU key in fuses
-	# pack_into("8s8s8s8s", fuse_data, 0x18, cpu_key[:8], cpu_key[:8], cpu_key[8:16], cpu_key[8:16])
 	fuse_data = set_fuseline(fuse_data, 3, cpu_key[:8])
 	fuse_data = set_fuseline(fuse_data, 4, cpu_key[:8])
 	fuse_data = set_fuseline(fuse_data, 5, cpu_key[8:16])
@@ -87,5 +88,7 @@ def main() -> None:
 	print(f"KV written to \"{str(kv_path.absolute())}\"!")
 	print(f"Fuses written to \"{str(fuse_path.absolute())}\"!")
 
+	return 0
+
 if __name__ == "__main__":
-	main()
+	exit(main())

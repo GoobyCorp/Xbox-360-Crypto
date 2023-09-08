@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 
 from os import urandom
+from struct import pack
 from enum import IntEnum
 from os.path import isfile
-from struct import pack, pack_into
 from argparse import ArgumentParser
 
 from XeCrypt import *
@@ -17,7 +17,7 @@ class ExpansionMagic(IntEnum):
 	SIGM = 0x5349474D
 	SIGC = 0x53494743
 
-def sign_exp(in_file: str, out_file: str = None, key_file: str = "Keys/HVX_prv.bin", exp_magic: ExpansionMagic = ExpansionMagic.HXPR, exp_id: int = 0x48565050, encrypt: bool = True):
+def sign_exp(in_file: str, out_file: str = None, key_file: str = "Keys/HVX_prv.bin", exp_magic: ExpansionMagic = ExpansionMagic.HXPR, exp_id: int = 0x48565050, encrypt: bool = True) -> None:
 	cpu_key = b""
 
 	# prv_key = read_file(key_file)
@@ -49,13 +49,13 @@ def sign_exp(in_file: str, out_file: str = None, key_file: str = "Keys/HVX_prv.b
 	# 0x170
 
 	# write the header into the expansion
-	pack_into(f"<{len(exp_hdr)}s", exp_final, 0, exp_hdr)
+	exp_final[0:0 + len(exp_hdr)] = exp_hdr
 	# write the payload into the expansion
-	pack_into(f"<{payload_len_pad}s", exp_final, len(exp_hdr), payload)
+	exp_final[len(exp_hdr):len(exp_hdr) + payload_len_pad] = payload
 
 	# write the expansion hash
 	b_hash = XeCryptSha(exp_final[0x130:0x170 + payload_len_pad])
-	pack_into("<20s", exp_final, 0xC, b_hash)
+	exp_final[0xC:0xC + 0x14] = b_hash
 
 	# write the expansion signature
 	if exp_typ == ExpansionMagic.HXPR:
@@ -68,12 +68,12 @@ def sign_exp(in_file: str, out_file: str = None, key_file: str = "Keys/HVX_prv.b
 		assert XeCryptCpuKeyValid(cpu_key), "A valid CPU is required for HXPC/SIGC"
 		b_hash = XeCryptHmacSha(cpu_key, exp_final[:0x30])
 		# sig = XeKeysPkcs1Create(b_hash, prv_key)
-		sig =  prv_key.sig_create(b_hash, EXP_SALT)
+		sig = prv_key.sig_create(b_hash, EXP_SALT)
 	else:
 		raise Exception("Invalid expansion magic")
 
 	# write the expansion signature
-	pack_into(f"<{len(sig)}s", exp_final, 0x30, sig)
+	exp_final[0x30:0x30 + len(sig)] = sig
 
 	# strip padding
 	exp_final = exp_final[:0x170 + payload_len_pad]
@@ -82,14 +82,14 @@ def sign_exp(in_file: str, out_file: str = None, key_file: str = "Keys/HVX_prv.b
 	if exp_typ == ExpansionMagic.HXPR:
 		if encrypt:  # encrypt everything after the signature
 			exp_iv = urandom(0x10)
-			pack_into("16s", exp_final, 0x20, exp_iv)
+			exp_final[0x20:0x30] = exp_iv
 			enc_exp = XeCryptAes.new(XECRYPT_1BL_KEY, XeCryptAes.MODE_CBC, exp_iv).encrypt(exp_final[0x130:])
-			pack_into(f"<{len(enc_exp)}s", exp_final, 0x130, enc_exp)
+			exp_final[0x130:0x130 + len(enc_exp)] = enc_exp
 
 	# write it to a file
 	write_file(out_file if out_file else in_file, exp_final)
 
-def main() -> None:
+def main() -> int:
 	global EXP_SIZE
 
 	parser = ArgumentParser(description="A script to sign HvxExpansionInstall payloads")
@@ -107,8 +107,10 @@ def main() -> None:
 
 	print("Done!")
 
+	return 0
+
 if __name__ == "__main__":
-	main()
+	exit(main())
 
 __all__ = [
 	"ExpansionMagic",

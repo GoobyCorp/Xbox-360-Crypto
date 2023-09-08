@@ -1,6 +1,9 @@
 /*.bin
 /*.log
 /*.txt
+/*.7z
+/*.rar
+/*.zip
 /test.py
 /build_flash.py
 /compression.py

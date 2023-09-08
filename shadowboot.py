@@ -620,7 +620,7 @@ def main() -> int:
 			print("Using custom copyright...")
 			copyright = b"\xA9 " + build_manifest["build"]["copyright"].encode("UTF8")
 		else:
-			copyright = b"\xA9 2005-2022 Microsoft Corporation. All rights reserved"
+			copyright = b"\xA9 2005-2023 Microsoft Corporation. All rights reserved"
 
 		if build_manifest["build"]["version"] > 0:
 			print("Using custom build version...")

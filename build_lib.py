@@ -12,6 +12,7 @@ from XeCrypt import *
 from StreamIO import *
 
 BIN_DIR = "bin"
+INCLUDE_DIR = "includes"
 
 # C DLL's
 libcedll = CDLL(abspath("lib/x64/libcedll.dll"))
@@ -24,10 +25,11 @@ libcedll.ceDecompress.restype = c_uint32
 libcedll.ceCompress.argtypes = [POINTER(c_ubyte), c_uint32]
 libcedll.ceCompress.restype = c_uint32
 
-def assemble_patch(asm_filename: str, bin_filename: str, *includes) -> None:
+def assemble_patch(asm_filename: str, bin_filename: str, *defines) -> None:
 	args = [str(Path(BIN_DIR) / "xenon-as.exe"), "-be", "-many", "-mregnames", asm_filename, "-o", "temp.elf"]
 	args.extend(["-I", str(Path(asm_filename).parent.absolute())])
-	[args.extend(["-I", str(Path(x).absolute())]) for x in includes]
+	args.extend(["-I", str(Path(INCLUDE_DIR).absolute())])
+	[args.extend(["--defsym", f"{x}=1"]) for x in defines]
 	result = subprocess.run(args, shell=True, stdout=subprocess.DEVNULL)
 	assert result.returncode == 0, f"Patch assembly failed with error code {result.returncode}"
 
@@ -36,6 +38,12 @@ def assemble_patch(asm_filename: str, bin_filename: str, *includes) -> None:
 	assert result.returncode == 0, f"ELF conversion failed with error code {result.returncode}"
 
 	Path("temp.elf").unlink()
+
+def assemble_devkit_patch(asm_filename: str, bin_filename: str, *defines) -> None:
+	assemble_patch(asm_filename, bin_filename, "DEVKIT", *defines)
+
+def assemble_retail_patch(asm_filename: str, bin_filename: str, *defines) -> None:
+	assemble_patch(asm_filename, bin_filename, "RETAIL", *defines)
 
 def run_command(path: Union[Path, str], *args: str) -> tuple[int, str]:
 	ep = Path(path)  # executable path
@@ -129,6 +137,8 @@ def calc_bldr_pad_size(size: int) -> int:
 
 __all__ = [
 	"assemble_patch",
+	"assemble_devkit_patch",
+	"assemble_retail_patch",
 	"run_command",
 	"decompress_se",
 	"compress_se",

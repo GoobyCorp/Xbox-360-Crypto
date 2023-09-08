@@ -1,3 +1,7 @@
+#============================================================================
+# Spoofy
+#============================================================================
+
 	.globl _start
 _start:
 	mflr    r12
@@ -198,58 +202,47 @@ fuseline_0:
 	blr
 fuseline_1:
 	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x8
+	subi    r5, r5, 0x58
 	blr
 fuseline_2:
 	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x10
+	subi    r5, r5, 0x50
 	blr
 fuseline_3:
 	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x18
+	subi    r5, r5, 0x48
 	blr
 fuseline_4:
 	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x20
+	subi    r5, r5, 0x40
 	blr
 fuseline_5:
 	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x28
+	subi    r5, r5, 0x38
 	blr
 fuseline_6:
 	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x30
+	subi    r5, r5, 0x30
 	blr
 fuseline_7:
 	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x38
+	subi    r5, r5, 0x28
 	blr
 fuseline_8:
 	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x40
+	subi    r5, r5, 0x20
 	blr
 fuseline_9:
 	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x48
+	subi    r5, r5, 0x18
 	blr
 fuseline_10:
 	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x50
+	subi    r5, r5, 0x10
 	blr
 fuseline_11:
 	lis     r5, 1
-	subi    r5, r5, 0x60
-	addi    r5, r5, 0x58
+	subi    r5, r5, 0x8
 	blr
 
 PokeBYTE:

@@ -26,7 +26,7 @@ from cryptography.hazmat.primitives.ciphers import Cipher
 from cryptography.hazmat.primitives.hashes import MD5, SHA1
 from cryptography.hazmat.primitives.ciphers.modes import ECB, CBC
 # from cryptography.hazmat.primitives.asymmetric.utils import Prehashed
-from cryptography.hazmat.primitives.ciphers.algorithms import ARC4, AES
+from cryptography.hazmat.primitives.ciphers.algorithms import ARC4, AES, TripleDES
 # from cryptography.hazmat.primitives.asymmetric.padding import PKCS1v15, PSS, MGF1
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey, RSAPrivateKey, RSAPublicNumbers, RSAPrivateNumbers
 
@@ -234,6 +234,106 @@ class XECRYPT_RSAPRV_4096(BigEndianStructure):
 		("cr", (BYTE * 256)),
 	]
 
+class XECRYPT_KEYVAULT(BigEndianStructure):
+	_pack_ = 1
+
+	_fields_ = [
+		("nonce", BYTE * 0x10),
+		("obfuscation", BYTE * 8),
+		("manufacturing_mode", BYTE),
+		("alternate_keyvault", BYTE),
+		("restricted_privilege_flags", BYTE),
+		("reserved_byte_3", BYTE),  # reserved
+		("odd_features", WORD),
+		("odd_auth_type", WORD),
+		("restricted_hv_ext_loader", WORD),
+		("reserved_ushort_1", WORD),  # reserved
+		("policy_flash_size", DWORD),
+		("policy_build_in_mu_size", DWORD),
+		("reserved_dword_4", DWORD),  # reserved
+		("restricted_privileges", QWORD),
+		("reserved_qword_2", QWORD),  # reserved
+		("reserved_qword_3", QWORD),  # reserved
+		("reserved_qword_4", QWORD),  # reserved
+		("reserved_key_1", BYTE * 0x10),  # reserved
+		("reserved_key_2", BYTE * 0x10),  # reserved
+		("reserved_key_3", BYTE * 0x10),  # reserved
+		("reserved_key_4", BYTE * 0x10),  # reserved
+		("reserved_random_key_1", BYTE * 0x10),  # reserved
+		("reserved_random_key_2", BYTE * 0x10),  # reserved
+		("console_serial", BYTE * 0xC),
+		("PADDING1", BYTE * 4),  # padding
+		("motherboard_serial", BYTE * 8),
+		("game_region", WORD),
+		("PADDING2", BYTE * 6),  # padding
+		("console_obf_key", BYTE * 0x10),
+		("key_obf_key", BYTE * 0x10),
+		("roamable_obf_key", BYTE * 0x10),
+		("odd_key", BYTE * 0x10),
+		("primary_activation_key", BYTE * 0x18),
+		("secondary_activation_key", BYTE * 0x10),
+
+		# 2des
+		("global_dev_2des_key_1", BYTE * 0x10),
+		("global_dev_2des_key_2", BYTE * 0x10),
+
+		("wireless_controller_2des_key_1", BYTE * 0x10),
+		("wireless_controller_2des_key_2", BYTE * 0x10),
+
+		("wired_webcam_2des_key_1", BYTE * 0x10),
+		("wired_webcam_2des_key_2", BYTE * 0x10),
+
+		("wired_controller_2des_key_1", BYTE * 0x10),
+		("wired_controller_2des_key_2", BYTE * 0x10),
+
+		("memory_unit_2des_key_1", BYTE * 0x10),
+		("memory_unit_2des_key_2", BYTE * 0x10),
+
+		("other_xsm3_dev_2des_key_1", BYTE * 0x10),
+		("other_xsm3_dev_2des_key_2", BYTE * 0x10),
+
+		# 3p2des
+		("wireless_controller_3p2des_key_1", BYTE * 0x10),
+		("wireless_controller_3p2des_key_2", BYTE * 0x10),
+
+		("wired_webcam_3p2des_key_1", BYTE * 0x10),
+		("wired_webcam_3p2des_key_2", BYTE * 0x10),
+
+		("wired_controller_3p2des_key_1", BYTE * 0x10),
+		("wired_controller_3p2des_key_2", BYTE * 0x10),
+
+		("memory_unit_3p2des_key_1", BYTE * 0x10),
+		("memory_unit_3p2des_key_2", BYTE * 0x10),
+
+		("other_xsm3_dev_3p2des_key_1", BYTE * 0x10),
+		("other_xsm3_dev_3p2des_key_2", BYTE * 0x10),
+
+		("console_private_key", XECRYPT_RSAPRV_1024),
+		("xeika_private_key", XECRYPT_RSAPRV_2048),
+		("cardea_private_key", XECRYPT_RSAPRV_1024),
+
+		("console_certificate_size", WORD),
+		("console_id", BYTE * 5),
+		("console_part_number", BYTE * 0xB),
+		("console_reserved", DWORD),  # reserved
+		("console_privileges", WORD),
+		("console_type", DWORD),
+		("manufacture_date", BYTE * 8),
+		("console_public_key_exponent", DWORD),
+		("console_public_key_modulus", BYTE * 0x80),
+		("console_certificate_signature", XECRYPT_SIG),
+		("xeika_certificate_size", WORD),
+		("xeika_public_key", XECRYPT_RSAPUB_2048),
+		("xeika_certificate_overlay_signature", DWORD),
+		("xeika_certificate_overlay_version", WORD),
+		("xeika_odd_date_version", BYTE),
+		("xeika_odd_drive_phase_level", BYTE),
+		("odd_version_string", BYTE * 0x28),
+		("xeika_certificate_reserved", BYTE * 0x1146),  # reserved
+		("special_keyvault_signature", XECRYPT_SIG),
+		("cardea_certificate", BYTE * 0x2108)
+	]
+
 # utilities
 def read_file(filename: str, text: bool = False) -> Union[bytes, str]:
 	p = Path(filename)
@@ -270,6 +370,13 @@ def i2b(i: int, bswap: bool = False) -> bytes:
 	if bswap:
 		data = bswap64(data)
 	return data
+
+
+def rotl(value: int, shift: int, bits: int = 32) -> int:
+	return ((value << shift) | (value >> (bits - shift))) & ((1 << bits) - 1)
+
+def rotr(value: int, shift: int, bits: int = 32) -> int:
+	return ((value >> shift) | (value << (bits - shift))) & ((1 << bits) - 1)
 
 def bswap(data: BinType, fmt: str) -> bytes:
 	size = calcsize(fmt)
@@ -332,7 +439,9 @@ class XeCryptRc4:
 
 	def __init__(self, key: BinType):
 		self.reset()
+
 		self._cipher = Cipher(ARC4(key), None)
+
 		self._enc = self._cipher.encryptor()
 		self._dec = self._cipher.decryptor()
 
@@ -360,6 +469,9 @@ class XeCryptAes:
 
 	def __init__(self, key: BinType, mode: Optional[int] = MODE_ECB, iv: Optional[BinType] = None):
 		self.reset()
+
+		assert (len(key) * 8) in [128, 256], "AES key must be 128 or 256 bits"
+
 		if mode == self.MODE_ECB:
 			self._cipher = Cipher(AES(key), ECB())
 		elif mode == self.MODE_CBC:
@@ -367,6 +479,7 @@ class XeCryptAes:
 			self._cipher = Cipher(AES(key), CBC(iv))
 		else:
 			raise Exception("Invalid cipher mode entered")
+
 		self._enc = self._cipher.encryptor()
 		self._dec = self._cipher.decryptor()
 
@@ -382,6 +495,172 @@ class XeCryptAes:
 
 	def decrypt(self, data: BinType) -> bytes:
 		return self._dec.update(data)
+
+class XeCryptDes:
+	MODE_ECB = 1
+	MODE_CBC = 2
+
+	def __init__(self, key: BinType, mode: Optional[int] = MODE_ECB, iv: Optional[BinType] = None):
+		self.reset()
+
+		# assert (len(key) * 8) == 64, "DES key must be 64 bits"
+
+		if mode == self.MODE_ECB:
+			self._cipher = Cipher(TripleDES(key), ECB())
+		elif mode == self.MODE_CBC:
+			assert iv is not None, "IV is required for the CBC cipher mode"
+			self._cipher = Cipher(TripleDES(key), CBC(iv))
+		else:
+			raise Exception("Invalid cipher mode entered")
+
+		self._enc = self._cipher.encryptor()
+		self._dec = self._cipher.decryptor()
+
+	def reset(self) -> None:
+		self._cipher = None
+
+	@staticmethod
+	def new(key: BinType, mode: int = MODE_ECB, iv: BinType = None):
+		return XeCryptDes(key, mode, iv)
+
+	def encrypt(self, data: BinType) -> bytes:
+		return self._enc.update(data)
+
+	def decrypt(self, data: BinType) -> bytes:
+		return self._dec.update(data)
+
+class XeCryptDes2:
+	MODE_ECB = 1
+	MODE_CBC = 2
+
+	def __init__(self, key: BinType, mode: Optional[int] = MODE_ECB, iv: Optional[BinType] = None):
+		self.reset()
+
+		# assert (len(key) * 8) in [64, 128], "DES key must be 64 or 128 bits"
+
+		# if len(key) == (TripleDES.block_size // 8):
+		#	key *= 2
+
+		if mode == self.MODE_ECB:
+			self._cipher = Cipher(TripleDES(key), ECB())
+		elif mode == self.MODE_CBC:
+			assert iv is not None, "IV is required for the CBC cipher mode"
+			self._cipher = Cipher(TripleDES(key), CBC(iv))
+		else:
+			raise Exception("Invalid cipher mode entered")
+
+		self._enc = self._cipher.encryptor()
+		self._dec = self._cipher.decryptor()
+
+	def reset(self) -> None:
+		self._cipher = None
+
+	@staticmethod
+	def new(key: BinType, mode: int = MODE_ECB, iv: BinType = None):
+		return XeCryptDes2(key, mode, iv)
+
+	def encrypt(self, data: BinType) -> bytes:
+		return self._enc.update(data)
+
+	def decrypt(self, data: BinType) -> bytes:
+		return self._dec.update(data)
+
+class XeCryptDes3:
+	MODE_ECB = 1
+	MODE_CBC = 2
+
+	def __init__(self, key: BinType, mode: Optional[int] = MODE_ECB, iv: Optional[BinType] = None):
+		self.reset()
+
+		# assert (len(key) * 8) in [64, 192], "DES key must be 64 or 192 bits"
+
+		# if len(key) == (TripleDES.block_size // 8):
+		#	key *= 3
+
+		if mode == self.MODE_ECB:
+			self._cipher = Cipher(TripleDES(key), ECB())
+		elif mode == self.MODE_CBC:
+			assert iv is not None, "IV is required for the CBC cipher mode"
+			self._cipher = Cipher(TripleDES(key), CBC(iv))
+		else:
+			raise Exception("Invalid cipher mode entered")
+
+		self._enc = self._cipher.encryptor()
+		self._dec = self._cipher.decryptor()
+
+	def reset(self) -> None:
+		self._cipher = None
+
+	@staticmethod
+	def new(key: BinType, mode: int = MODE_ECB, iv: BinType = None):
+		return XeCryptDes3(key, mode, iv)
+
+	def encrypt(self, data: BinType) -> bytes:
+		return self._enc.update(data)
+
+	def decrypt(self, data: BinType) -> bytes:
+		return self._dec.update(data)
+
+def XeCryptParveEcb(key: BinType, sbox: BinType, data: BinType) -> bytes:
+	block = bytearray(9)
+	block[:8] = data[:8]
+	block[8] = block[0]
+	for i in range(8, 0, -1):
+		for j in range(8):
+			x = key[j] + block[j] + i
+			x &= UINT8_MASK
+			y = sbox[x] + block[j + 1]
+			y &= UINT8_MASK
+			block[j + 1] = rotl(y, 1, 8)
+		block[0] = block[8]
+	return block[:8]
+
+def XeCryptParveCbcMac(key: BinType, sbox: BinType, iv: BinType, data: BinType) -> bytes:
+	block = bytearray(8)
+	block[:8] = iv
+	if len(data) >= 8:
+		for i in range(0, len(data), 8):
+			(v0,) = unpack(">Q", block)
+			(v1,) = unpack_from(">Q", data, i)
+			v0 ^= v1
+			v0 &= UINT64_MASK
+			block = pack(">Q", v0)
+			block = XeCryptParveEcb(key, sbox, block)
+	return block[:8]
+
+def XeCryptChainAndSumMac(cd: BinType, ab: BinType, data: BinType) -> bytes:
+	out0 = 0
+	out1 = 0
+
+	(ab0, ab1) = unpack(">2I", ab)
+	ab0 %= 0x7FFFFFFF
+	ab1 %= 0x7FFFFFFF
+
+	(cd0, cd1) = unpack(">2I", cd)
+	cd0 %= 0x7FFFFFFF
+	cd1 %= 0x7FFFFFFF
+
+	# cdw = len(data) // 4
+	# cqw = cdw // 2
+	for i in range(0, len(data), 8):
+		(v0, v1) = unpack_from(">2I", data, i)
+
+		t = v0 * 0xE79A9C1
+		t += out0
+		t %= 0x7FFFFFFF
+		t *= ab0
+		t += ab1
+		t %= 0x7FFFFFFF
+		out1 += t
+
+		t += v1
+		t *= cd0
+		t %= 0x7FFFFFFF
+		t += cd1
+		out0 = t % 0x7FFFFFFF
+		out1 += out0
+
+	return pack(">2I", (out0 + ab1) % 0x7FFFFFFF, (out1 + cd1) % 0x7FFFFFFF)
 
 # checksums
 def XeCryptRotSum(data: BinType) -> bytes:
@@ -426,14 +705,19 @@ def XeCryptBnQwNeModInv(val: int) -> int:
 	t2 = t1 ^ 2
 	t1 = t2 * val
 	t1 = (~t1) + 2
+
 	i = 5
 	while i < 0x20:
 		t3 = t1 + 1
+
 		t2 *= t3
 		t2 &= UINT64_MASK
+
 		t1 *= t1
 		t1 &= UINT64_MASK
+
 		i <<= 1
+
 	t1 = t1 + 1
 	return t1 * t2
 
@@ -467,7 +751,7 @@ def XeCryptBnQwNeRsaKeyGen(cbits: int = 2048, exp: int = 0x10001) -> Tuple[bytes
 	assert cbits in [1024, 1536, 2048, 4096], "Invalid bit count specified!"
 	prv_key = rsa.generate_private_key(exp, cbits)
 	# mod_size = prv_key.key_size
-	cqw = prv_key.key_size // 8
+	cqw = prv_key.key_size // 8 // 8
 
 	pub_n = prv_key.public_key().public_numbers()
 	prv_n = prv_key.private_numbers()
@@ -477,7 +761,7 @@ def XeCryptBnQwNeRsaKeyGen(cbits: int = 2048, exp: int = 0x10001) -> Tuple[bytes
 	q = i2b(prv_n.q, True)
 	dp = i2b(prv_n.dmp1, True)
 	dq = i2b(prv_n.dmq1, True)
-	u = i2b(pow(prv_n.p, -1, prv_n.q), True)
+	u = i2b(prv_n.iqmp, True)
 
 	mod_inv = XeCryptBnQwNeModInv(pub_n.n)
 	mod_inv &= UINT64_MASK
@@ -511,16 +795,19 @@ def XeCryptBnQwBeSigFormat(cqw: int, b_hash: BinType, salt: BinType) -> bytes:
 	return XeCryptBnQwBeBufSwap(sig)
 
 def XeCryptBnQwBeSigCreate(b_hash: BinType, salt: BinType, prv_key: BinType) -> Union[bytes, None]:
+	if len(salt) > 10:
+		raise Exception("Salt parameter must be 10 bytes or less")
+
 	key = PY_XECRYPT_RSA_KEY(prv_key)
 	if key.cqw != 0x20:  # PXECRYPT_RSAPRV_2048
-		return None
+		raise Exception("Only PXECRYPT_RSAPRV_2048 can create signatures")
 
 	if key.e not in [0x3, 0x10001]:
-		return None
+		raise Exception("Public exponent must be 0x3 or 0x10001")
 
 	sig = XeCryptBnQwBeSigFormat(key.cqw, b_hash, salt)
 	if sig == bytes(key.n_size_in_bytes):
-		return None
+		raise Exception("Output signature size overflow")
 
 	si = b2i(sig, True)
 	se = (si * key.r) % key.n  # convert out
@@ -528,10 +815,13 @@ def XeCryptBnQwBeSigCreate(b_hash: BinType, salt: BinType, prv_key: BinType) -> 
 	return sb
 
 def XeCryptBnQwBeSigVerify(sig: BinType, b_hash: BinType, salt: BinType, pub_key: BinType) -> bool:
+	if len(salt) > 10:
+		raise Exception("Salt parameter must be 10 bytes or less")
+
 	key = PY_XECRYPT_RSA_KEY(pub_key)
 
-	if key.cqw != 0x20:  # PXECRYPT_RSAPRV_2048
-		return False
+	if key.cqw != 0x20:  # PXECRYPT_RSAPUB_2048
+		raise Exception("Only PXECRYPT_RSAPUB_2048 can verify signatures")
 
 	si = b2i(sig, True)
 	s0 = pow(si, key.e, key.n)  # reverse of pow(sig, key.d, key.n)
@@ -626,9 +916,7 @@ def XeCryptBnQwNeRsaPrvCrypt(data: BinType, prv_key: BinType) -> Union[bytes, bo
 
 def XeCryptBnQwNeRsaPubCrypt(data: BinType, pub_key: BinType) -> Union[bytes, bool]:
 	key = PY_XECRYPT_RSA_KEY(pub_key)
-	data = b2i(data, True)
-	data = pow(data, key.e & 0xFFFFFFFF, key.n)
-	return bswap64(data.to_bytes(key.cqw * 8, "little", signed=False))
+	return bswap64(pow(b2i(data, True), key.e & 0xFFFFFFFF, key.n).to_bytes(key.cqw * 8, "little", signed=False))
 
 # Utility
 def XeCryptSmcDecrypt(data: BinType) -> BinType:
@@ -948,7 +1236,7 @@ class PY_XECRYPT_RSA_KEY:
 
 	@property
 	def inv_q(self) -> int:
-		return pow(self.p, -1, self.q)
+		return pow(self.q, -1, self.p)
 
 	def sig_create(self, hash: BinType, salt: BinType) -> bytes:
 		assert self.is_private_key, "Key isn't a private key!"
@@ -1015,17 +1303,14 @@ __all__.extend([
 	"XECRYPT_RSAPRV_1536",
 	"XECRYPT_RSAPRV_2048",
 	"XECRYPT_RSAPRV_4096",
-	"XECRYPT_SIG"
+	"XECRYPT_SIG",
+
+	"XECRYPT_KEYVAULT"
 ])
 
 # helper classes
 __all__.extend([
 	"BLHeader"
-])
-
-# managed key class
-__all__.extend([
-	"PY_XECRYPT_RSA_KEY"
 ])
 
 # enums
@@ -1035,6 +1320,9 @@ __all__.extend([
 
 # functions
 __all__.extend([
+	"XeCryptParveEcb",
+	"XeCryptParveCbcMac",
+	"XeCryptChainAndSumMac",
 	"XeCryptBnDwLePkcs1Format",
 	"XeCryptBnDwLePkcs1Verify",
 	"XeCryptBnQwBeSigCreate",
@@ -1055,8 +1343,6 @@ __all__.extend([
 	"XeCryptMd5",
 	"XeCryptPageEccEncode",
 	"XeCryptRandom",
-	"XeCryptRc4",
-	"XeCryptAes",
 	"XeCryptRotSum",
 	"XeCryptRotSumSha",
 	"XeCryptSha",
@@ -1067,13 +1353,25 @@ __all__.extend([
 	"XeKeysPkcs1Verify"
 ])
 
+# classes
+__all__.extend([
+	"XeCryptRc4",
+	"XeCryptAes",
+	"XeCryptDes",
+	"XeCryptDes2",
+	"XeCryptDes3",
+	"PY_XECRYPT_RSA_KEY"
+])
+
 # utility functions
 __all__.extend([
 	"read_file",
 	"write_file",
 	"reverse",
+	"b2i",
+	"i2b",
 	"bswap16",
 	"bswap32",
 	"bswap64",
-	"XeCryptBnQw_SwapDwQwLeBe",
+	"XeCryptBnQw_SwapDwQwLeBe"
 ])

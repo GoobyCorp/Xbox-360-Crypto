@@ -2,6 +2,10 @@
 
 .include "macros.S"
 
+.set nand_fuses_offset, 0x00100000
+.set HvpGetFlashBaseAddress, 0x0000068C
+.set XeCryptCopyQwVec, 0x00000484  # XeCryptCopyQwVec(void* dest, void* src, int iter)
+
 #============================================================================
 #   Patches for Hypervisor 21256.18_17489
 #============================================================================
@@ -31,7 +35,7 @@ _start:
 #============================================================================
     MAKEPATCH 0x00001BE0
 0:
-    bla     FixFusesAddr
+    bla     FixFuses
 9:
 #--------------------------------------
     MAKEPATCH 0x00001BF4
@@ -42,7 +46,7 @@ _start:
 #------blow fuses ?CORONA? !!! ISNT CORRECT!!!-----------
     MAKEPATCH 0x00008038
 0:
-    bla     FixFusesAddr
+    bla     FixFuses
 9:
 # ;--------------------------------------
     MAKEPATCH 0x00008058
@@ -57,7 +61,7 @@ _start:
 #--------------------------------------------------
     MAKEPATCH 0x00009438
 0:
-    bla     FixFusesAddr
+    bla     FixFuses
 9:
 #--------------------------------------
     MAKEPATCH 0x00009468
@@ -68,7 +72,7 @@ _start:
 #--------------------------------------------------
     MAKEPATCH 0x000095D8
 0:
-    bla     FixFusesAddr
+    bla     FixFuses
 9:
 #--------------------------------------
     MAKEPATCH 0x00009608
@@ -79,7 +83,7 @@ _start:
 #--------------------------------------------------
     MAKEPATCH 0x0000972C
 0:
-    bla     FixFusesAddr
+    bla     FixFuses
 9:
 #--------------------------------------
     MAKEPATCH 0x0000975C
@@ -90,7 +94,7 @@ _start:
 #--------------------------------------------------
     MAKEPATCH 0x00009A58
 0:
-    bla     FixFusesAddr
+    bla     FixFuses
 9:
 #--------------------------------------
     MAKEPATCH 0x00009A88
@@ -101,7 +105,7 @@ _start:
 #--------------------------------------------------
     MAKEPATCH 0x00009DE4
 0:
-    bla     FixFusesAddr
+    bla     FixFuses
 9:
 #--------------------------------------
     MAKEPATCH 0x00009E14
@@ -113,7 +117,7 @@ _start:
 #--------------------------------------------------
     MAKEPATCH 0x0000A0D8
 0:
-    bla     FixFusesAddr
+    bla     FixFuses
 9:
 #--------------------------------------
     MAKEPATCH 0x0000A104
@@ -123,25 +127,22 @@ _start:
     cmpwi   cr6, r11, 0x000c
 9:
 
+
 #============================================================================
 #   Send Dot Character over Serial as Progress Indicator (ikari)
 #============================================================================
 	MAKEPATCH 0x000018C0
 	.set CopyFusesDest, 0x000002D8
 0:
-	bla      CopyFuses  # patches
+	bla     CopyFuses  # patches
 9:
 
 #============================================================================
 #   Utility Functions (c0z and ikari)
 #============================================================================
 	MAKEPATCH  0x0000B188
-	.set nand_fuses_offset, 0x00100000
-	.set HvpGetFlashBaseAddress, 0x0000068C
-	.set HvpFlashCopy, 0x00000484 # XeCryptCopyQwVec(void* dest, void* src, int iter)
-	.set HvpMemCpy, 0x0000A4E0 #  memcpy(void *destination, const void *source, int len)
 	.set CopyFuses, PatchAddr
-	.set FixFusesAddr, (PatchAddr + (1f - 0f))
+	.set FixFuses, (PatchAddr + (1f - 0f))
 
 #--------------------------------------------------
 # CopyFuses
@@ -157,7 +158,7 @@ _start:
 	subi	r3, r3, 0x60
 	# 0x60 bytes, 0xC 64bit vals to copy
 	li		r5, 0xC
-	bla		HvpFlashCopy
+	bla		XeCryptCopyQwVec
 
 	# remove KV signature check
 	lhz     r3, BldrFlags(0)
@@ -167,14 +168,13 @@ _start:
 
 	ba      CopyFusesDest
 #--------------------------------------------------
-# FixFusesAddr
+# FixFuses
 #--------------------------------------------------
 1:
 	lis		r3, 1
 	subi	r3, r3, 0x60
 	blr
 9:
-
 #============================================================================
 		.long 0xFFFFFFFF
 		.end
