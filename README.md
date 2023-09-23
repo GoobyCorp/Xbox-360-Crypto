@@ -30,9 +30,6 @@ A script that attempts to dump patch binaries to assembly.
 ### [xdk_extract.py](xdk_extract.py)
 A script to dump XDK and recovery images to cabinet files.
 
-### [STFS.py](STFS.py)
-My attempt at a STFS library in python.
-
 ### [xval.py](xval.py)
 It's xval but in python, it checks to see if your console is possibly flagged.
 
@@ -44,9 +41,6 @@ A script made to decrypt XCP files delivered by the Xbox 360 CDN.
 
 ### [hvx_signer.py](xekeys_signer.py)
 A script that can sign HvKeysExecute payloads.
-
-### [xextool.py](xextool.py)
-My attempt at making an xextool entirely in python, it didn't go so well :cry:
 
 ### [cpu_key.py](cpu_key.py)
 A script that can generate valid CPU keys.

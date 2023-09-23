@@ -28,12 +28,12 @@ aes_cbc_100_round_feed = bytes.fromhex("6C88B3349984F7A0D959FCBA864AFAEC")
 # DES CBC
 des_1_round = bytes.fromhex("EECA54C48ED8256F")
 des_100_round = bytes.fromhex("09FA9615CBEC1128")
-des_cbc_round = bytes.fromhex("4C26B20B7BE8F24031A54D933133793FC82CADA9DFD98D6A337338C377DC695564A41B0C61B545F523A14A6E8831BFC4E5A72B65F8DF522362E42DE80399BA6D")
+des_cbc_round = bytes.fromhex("58BB062A32178596C177C8FD9A60B0B38DE153ADBD0A9F334E0DAF483B1F1C21D4F907262643697F3BB4411DE046063C44E7A590A0EF5B3A3A7639476E15E1E9")
 
 # DES3 CBC
 des3_1_round = bytes.fromhex("5EF685A69F187826")
 des3_100_round = bytes.fromhex("DAD66BC1E20B2489")
-des3_cbc_round = bytes.fromhex("B5AF523195020615337338C377DC695564A41B0C61B545F523A14A6E8831BFC4E5A72B65F8DF522362E42DE80399BA6DA4609C63F30D4B3B9445B7DBAC5BDDAB")
+des3_cbc_round = bytes.fromhex("5D9B0CB8665A3CACFCA4B4AA81ECA00FBBC6B12DDCE638A6D170FA7215B9BED3CD148AE566C3DADC16943DC3A2429FF054017FC87BCDE82A36CDEF5AE2643BC8")
 
 # MD5
 md5_digest = bytes.fromhex("DE0137D93167B099A9C766D57C45E8DB")
@@ -186,18 +186,16 @@ def do_des_test() -> bool:
 		print("FAILED")
 		des_pass = False
 
-	(des_key, des_feed, des_data) = unpack_from(f"<{XECRYPT_DES_KEY_SIZE}s {XECRYPT_DES_BLOCK_SIZE}s {XECRYPT_DES_BLOCK_SIZE * 8}s", TEST_DATA, 0)
-
-	# des_data = XeCryptDes.new(des_key, XeCryptDes.MODE_CBC, des_feed).decrypt(des_data)
-	# print("    DES-CBC - ")
-	# if des_data == des_cbc_round:
-	# 	print("OK")
-	# else:
-	# 	print("FAILED")
-	# 	des_pass = False
+	(des_key, des_feed, des_data) = unpack_from(f"{XECRYPT_DES_KEY_SIZE}s {XECRYPT_DES_BLOCK_SIZE}s {XECRYPT_DES_BLOCK_SIZE * 8}s", TEST_DATA, 0)
+	des_data = XeCryptDes.new(des_key, XeCryptDes.MODE_CBC, des_feed).decrypt(des_data)
+	print("    DES-CBC - ")
+	if des_data == des_cbc_round:
+		print("OK")
+	else:
+		print("FAILED")
+		des_pass = False
 
 	(des_key, des_data) = unpack_from(f"<{XECRYPT_DES3_KEY_SIZE}s {XECRYPT_DES3_BLOCK_SIZE}s", TEST_DATA, 0)
-
 	des_data = XeCryptDes3.new(des_key).decrypt(des_data)
 	print("    DES3-ECB first round - ")
 	if des_data == des3_1_round:
@@ -216,17 +214,14 @@ def do_des_test() -> bool:
 		print("FAILED")
 		des_pass = False
 
-	(des_key,) = unpack_from(f"<{XECRYPT_DES3_KEY_SIZE}s", TEST_DATA, 0)
-	(des_feed,) = unpack_from(f"<{XECRYPT_DES3_BLOCK_SIZE}s", TEST_DATA, XECRYPT_DES3_KEY_SIZE)
-	(des_data,) = unpack_from(f"<{XECRYPT_DES3_BLOCK_SIZE * 8}s", TEST_DATA, XECRYPT_DES3_KEY_SIZE + XECRYPT_DES3_BLOCK_SIZE)
-
-	# des_data = XeCryptDes3.new(des_key, XeCryptDes3.MODE_CBC, des_feed).decrypt(des_data)
-	# print("    DES3-CBC - ")
-	# if des_data == des3_cbc_round:
-	# 	print("OK")
-	# else:
-	# 	print("FAILED")
-	# 	des_pass = False
+	(des_key, des_feed, des_data) = unpack_from(f"{XECRYPT_DES3_KEY_SIZE}s {XECRYPT_DES3_BLOCK_SIZE}s {XECRYPT_DES3_BLOCK_SIZE * 8}s", TEST_DATA, 0)
+	des_data = XeCryptDes3.new(des_key, XeCryptDes3.MODE_CBC, des_feed).decrypt(des_data)
+	print("    DES3-CBC - ")
+	if des_data == des3_cbc_round:
+		print("OK")
+	else:
+		print("FAILED")
+		des_pass = False
 
 	print("DES %s" % ("OK" if des_pass else "FAILED!"))
 

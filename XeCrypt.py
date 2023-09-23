@@ -699,6 +699,13 @@ def XeCryptRotSumSha(data: BinType) -> BinType:
 def XeCryptBnQwNeModInv(val: int) -> int:
 	return pow(1 << 64, -1, val)
 
+def XeCryptBnQwNeModExpRoot(c: int, p: int, q: int, dp: int, dq: int, u: int) -> int:
+	m1 = pow(c, dp, p)
+	m2 = pow(c, dq, q)
+	h = (u * (m1 - m2)) % p
+	m = m2 + h * q
+	return m
+
 def XeCryptBnQwBeBufSwap(data: BinType) -> BinType:
 	assert len(data) % 8 == 0
 	if isinstance(data, bytes):
@@ -865,7 +872,8 @@ def XeKeysPkcs1Create(b_hash: BinType, prv_key: BinType) -> Union[BinType, None]
 		typ = 0
 		buf = XeCryptBnDwLePkcs1Format(b_hash, typ, key.cqw << 3)
 		buf = XeCryptBnQw_SwapDwQwLeBe(buf)
-		buf = XeCryptBnQwNeRsaPrvCrypt(buf, prv_key)
+		# buf = XeCryptBnQwNeRsaPrvCrypt(buf, prv_key)
+		buf = key.prv_crypt(buf)
 		return XeCryptBnQw_SwapDwQwLeBe(buf)
 
 def XeKeysPkcs1Verify(sig: BinType, b_hash: BinType, pub_key: BinType) -> bool:
@@ -873,18 +881,19 @@ def XeKeysPkcs1Verify(sig: BinType, b_hash: BinType, pub_key: BinType) -> bool:
 	if key.cqw != 0 and key.cqw <= 0x40:
 		buf = bytearray(0x200)
 		pack_into(f"<{len(sig)}s", buf, 0, XeCryptBnQw_SwapDwQwLeBe(sig))
-		buf = XeCryptBnQwNeRsaPubCrypt(buf, pub_key)
+		# buf = XeCryptBnQwNeRsaPubCrypt(buf, pub_key)
+		buf = key.pub_crypt(buf)
 		buf = XeCryptBnQw_SwapDwQwLeBe(buf)
 		return XeCryptBnDwLePkcs1Verify(buf, b_hash, key.cqw << 3)
 	return False
 
 def XeCryptBnQwNeRsaPrvCrypt(data: BinType, prv_key: BinType) -> Union[BinType, bool]:
 	key = PY_XECRYPT_RSA_KEY(prv_key)
-	return bswap64(pow(b2i(data, True), key.d, key.n).to_bytes(key.cqw * 8, "little", signed=False))
+	return key.prv_crypt(data)
 
 def XeCryptBnQwNeRsaPubCrypt(data: BinType, pub_key: BinType) -> Union[BinType, bool]:
 	key = PY_XECRYPT_RSA_KEY(pub_key)
-	return bswap64(pow(b2i(data, True), key.e, key.n).to_bytes(key.cqw * 8, "little", signed=False))
+	return key.pub_crypt(data)
 
 # Utility
 def XeCryptSmcDecrypt(data: BinType) -> BinType:
@@ -1206,22 +1215,31 @@ class PY_XECRYPT_RSA_KEY:
 	def inv_q(self) -> int:
 		return pow(self.q, -1, self.p)
 
+	def prv_crypt(self, n: Union[int, BinType]) -> bytes:
+		assert self.is_private_key, "Key isn't a private key!"
+		if isinstance(n, (bytes, bytearray)):
+			n = b2i(n, True)
+		return bswap64(XeCryptBnQwNeModExpRoot(n, self.p, self.q, self.dp, self.dq, self.u).to_bytes(self.cqw * 8, "little", signed=False))
+
+	def pub_crypt(self, n: Union[int, BinType]) -> bytes:
+		if isinstance(n, (bytes, bytearray)):
+			n = b2i(n, True)
+		return bswap64(pow(n, self.e, self.n).to_bytes(self.cqw * 8, "little", signed=False))
+
 	def sig_create(self, hash: BinType, salt: BinType) -> BinType:
 		assert self.is_private_key, "Key isn't a private key!"
 		sig = XeCryptBnQwBeSigCreate(hash, salt, self.key_bytes)
-		return XeCryptBnQwNeRsaPrvCrypt(sig, self.key_bytes)
+		return self.prv_crypt(sig)
 
 	def sig_verify(self, sig: BinType, hash: BinType, salt: BinType) -> bool:
-		pub_key = self.key_bytes[:(self.cqw * 8) + 0x10]
-		return XeCryptBnQwBeSigVerify(sig, hash, salt, pub_key)
+		return XeCryptBnQwBeSigVerify(sig, hash, salt, self.public_key.to_bytes())
 
 	def pkcs1_sig_create(self, hash: BinType) -> BinType:
 		assert self.is_private_key, "Key isn't a private key!"
 		return XeKeysPkcs1Create(hash, self.key_bytes)
 
 	def pkcs1_sig_verify(self, sig: BinType, hash: BinType) -> bool:
-		pub_key = self.key_bytes[:(self.cqw * 8) + 0x10]
-		return XeKeysPkcs1Verify(sig, hash, pub_key)
+		return XeKeysPkcs1Verify(sig, hash, self.public_key.to_bytes())
 
 # constants
 __all__ = [
