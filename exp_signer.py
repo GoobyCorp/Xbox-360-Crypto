@@ -63,7 +63,7 @@ def sign_exp(in_file: str, out_file: str = None, key_file: str = "Keys/HVX_prv.b
 		sig = prv_key.sig_create(b_hash, EXP_SALT)
 	elif exp_typ == ExpansionMagic.SIGM:
 		b_hash = XeCryptRotSumSha(exp_final[:0x30])
-		sig = prv_key.pkcs1_sig_create(b_hash)
+		sig = prv_key.sig_create_pkcs1(b_hash)
 	elif exp_typ in [ExpansionMagic.HXPC, ExpansionMagic.SIGC]:
 		assert XeCryptCpuKeyValid(cpu_key), "A valid CPU is required for HXPC/SIGC"
 		b_hash = XeCryptHmacSha(cpu_key, exp_final[:0x30])

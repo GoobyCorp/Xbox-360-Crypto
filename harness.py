@@ -76,9 +76,9 @@ def do_rsa_test() -> bool:
 
 	print("    testing PKCS1 signature creation and verification with static key....")
 
-	sig = prv_key.pkcs1_sig_create(rsa_test_hash)
+	sig = prv_key.sig_create_pkcs1(rsa_test_hash)
 	print("        PKCS1 signature created OK")
-	if prv_key.pkcs1_sig_verify(sig, rsa_test_hash):
+	if prv_key.sig_verify_pkcs1(sig, rsa_test_hash):
 		print("        PKCS1 signature verified OK")
 	else:
 		print("        PKCS1 signature verify FAILED")

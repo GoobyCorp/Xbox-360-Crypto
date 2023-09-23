@@ -363,8 +363,8 @@ def b2i(b: BinType, bswap: bool = False) -> int:
 		b = bswap64(b)
 	return int.from_bytes(b, "little", signed=False)
 
-def i2b(i: int, bswap: bool = False) -> BinType:
-	data = i.to_bytes((i.bit_length() + 7) // 8, "little", signed=False)
+def i2b(i: int, size: int, bswap: bool = False) -> BinType:
+	data = i.to_bytes(size, "little", signed=False)
 	data = rsa_pad(data)  # sometimes the data isn't evenly divisible by 8
 	if bswap:
 		data = bswap64(data)
@@ -725,18 +725,19 @@ def XeCryptBnQwBeBufSwap(data: BinType) -> BinType:
 def XeCryptBnQwNeRsaKeyGen(cbits: int = 2048, exp: int = 0x10001) -> Tuple[BinType, BinType]:
 	assert cbits in [1024, 1536, 2048, 4096], "Invalid bit count specified!"
 	prv_key = rsa.generate_private_key(exp, cbits)
-	# mod_size = prv_key.key_size
-	cqw = prv_key.key_size // 8 // 8
+	cb = prv_key.key_size // 8
+	cbh = cb // 2
+	cqw = cb // 8
 
 	pub_n = prv_key.public_key().public_numbers()
 	prv_n = prv_key.private_numbers()
 
-	n = i2b(pub_n.n, True)
-	p = i2b(prv_n.p, True)
-	q = i2b(prv_n.q, True)
-	dp = i2b(prv_n.dmp1, True)
-	dq = i2b(prv_n.dmq1, True)
-	u = i2b(prv_n.iqmp, True)
+	n = i2b(pub_n.n, cb, True)
+	p = i2b(prv_n.p, cbh, True)
+	q = i2b(prv_n.q, cbh, True)
+	dp = i2b(prv_n.dmp1, cbh, True)
+	dq = i2b(prv_n.dmq1, cbh, True)
+	u = i2b(prv_n.iqmp, cbh, True)
 
 	mod_inv = XeCryptBnQwNeModInv(pub_n.n)
 	mod_inv &= UINT64_MASK
@@ -786,7 +787,7 @@ def XeCryptBnQwBeSigCreate(b_hash: BinType, salt: BinType, prv_key: BinType) -> 
 
 	si = b2i(sig, True)
 	se = (si * key.r) % key.n  # convert out
-	sb = i2b(se, True)
+	sb = i2b(se, key.cqw * 8, True)
 	return sb
 
 def XeCryptBnQwBeSigVerify(sig: BinType, b_hash: BinType, salt: BinType, pub_key: BinType) -> bool:
@@ -801,7 +802,7 @@ def XeCryptBnQwBeSigVerify(sig: BinType, b_hash: BinType, salt: BinType, pub_key
 	si = b2i(sig, True)
 	s0 = pow(si, key.e, key.n)  # reverse of pow(sig, key.d, key.n)
 	s0 = (s0 * key.inv_r) % key.n  # reverse of (x * key.r) % key.n
-	sb = i2b(s0, True)
+	sb = i2b(s0, key.cqw * 8, True)
 
 	sd = XeCryptBnQwBeBufSwap(sb)
 
@@ -835,7 +836,8 @@ def XeCryptBnDwLePkcs1Format(b_hash: BinType, fmt_type: int, cb_sig: int) -> Uni
 	sig[:cb_sig] = (b"\xFF" * cb_sig)
 	sig[cb_sig - 1] = 0
 	sig[cb_sig - 2] = 1
-	pack_into("20s", sig, 0, b_hash[::-1])
+	sig[:20] = b_hash[::-1]
+	# pack_into("20s", sig, 0, b_hash[::-1])
 	if fmt_type == 0:
 		tbuf = bytes.fromhex("140400051A02030E2B05060930213000")
 		# pack_into(f"{len(tbuf)}s", sig, 0x14, tbuf)
@@ -849,8 +851,7 @@ def XeCryptBnDwLePkcs1Format(b_hash: BinType, fmt_type: int, cb_sig: int) -> Uni
 	return sig
 
 def XeCryptBnDwLePkcs1Verify(sig: BinType, b_hash: BinType, cb_sig: int) -> bool:
-	if len(sig) >= 0x27 and len(sig) <= 0x200:
-		# buf = bytearray(0x200)
+	if 0x27 <= len(sig) <= 0x200:
 		typ = 2
 		if sig[0x16] == 0:
 			typ = 0
@@ -861,8 +862,7 @@ def XeCryptBnDwLePkcs1Verify(sig: BinType, b_hash: BinType, cb_sig: int) -> bool
 
 def XeKeysPkcs1Create(b_hash: BinType, prv_key: BinType) -> Union[BinType, None]:
 	key = PY_XECRYPT_RSA_KEY(prv_key)
-	# sig = bytearray(key.n_size_in_bytes)
-	if key.cqw != 0 and key.cqw <= 0x40:
+	if 0 < key.cqw <= 0x40:
 		# buf = bytearray(0x200)
 		#typ = 2
 		#if sig[0x16] == 0:
@@ -871,19 +871,16 @@ def XeKeysPkcs1Create(b_hash: BinType, prv_key: BinType) -> Union[BinType, None]
 		#	typ = 1
 		typ = 0
 		buf = XeCryptBnDwLePkcs1Format(b_hash, typ, key.cqw << 3)
-		buf = XeCryptBnQw_SwapDwQwLeBe(buf)
-		# buf = XeCryptBnQwNeRsaPrvCrypt(buf, prv_key)
+		buf = bswap64(buf)
 		buf = key.prv_crypt(buf)
-		return XeCryptBnQw_SwapDwQwLeBe(buf)
+		return bswap64(buf)
 
 def XeKeysPkcs1Verify(sig: BinType, b_hash: BinType, pub_key: BinType) -> bool:
 	key = PY_XECRYPT_RSA_KEY(pub_key)
-	if key.cqw != 0 and key.cqw <= 0x40:
-		buf = bytearray(0x200)
-		pack_into(f"<{len(sig)}s", buf, 0, XeCryptBnQw_SwapDwQwLeBe(sig))
-		# buf = XeCryptBnQwNeRsaPubCrypt(buf, pub_key)
+	if 0 < key.cqw <= 0x40:
+		buf = bswap64(sig)
 		buf = key.pub_crypt(buf)
-		buf = XeCryptBnQw_SwapDwQwLeBe(buf)
+		buf = bswap64(buf)
 		return XeCryptBnDwLePkcs1Verify(buf, b_hash, key.cqw << 3)
 	return False
 
@@ -988,9 +985,8 @@ def XeCryptKeyVaultDecrypt(cpu_key: BinType, data: BinType) -> BinType:
 	return data
 
 def XeCryptKeyVaultEncrypt(cpu_key: BinType, data: BinType) -> BinType:
-	if type(data) == bytes:
+	if isinstance(data, bytes):
 		data = bytearray(data)
-
 	assert XeCryptCpuKeyValid(cpu_key), "Invalid CPU key"
 	version = bytes.fromhex("0712")
 	# random nonce
@@ -1008,7 +1004,7 @@ def XeCryptKeyVaultVerify(cpu_key: BinType, data: BinType, pub_key: BinType) -> 
 	return XeKeysPkcs1Verify(kv_data[0x1DE0:0x1DE0 + 0x100], kv_hash, pub_key)
 
 def XeCryptPageEccEncode(data: BinType) -> BinType:
-	if type(data) == bytes:
+	if isinstance(data, bytes):
 		data = bytearray(data)
 
 	v1 = 0
@@ -1106,14 +1102,22 @@ class PY_XECRYPT_RSA_KEY:
 		self.key_bytes = data
 		self.rsa_struct = XECRYPT_RSA.from_buffer_copy(data[:sizeof(XECRYPT_RSA)])
 		try:
-			self.key_struct = globals()[f"XECRYPT_RSA{'PRV' if self.is_private_key else 'PUB'}_{self.n_size_in_bits}"].from_buffer_copy(data)
+			self.key_struct = globals()[self.struct_name].from_buffer_copy(data)
 		except KeyError as e:
 			raise Exception("Invalid key data specified")
+		# verify key parameters
+		assert self.verify_parameters(), "Key parameters are incorrect!"
 
 	def reset(self) -> None:
 		self.key_bytes = None
 		self.rsa_struct = None
 		self.key_struct = None
+
+	def __enter__(self):
+		return self
+
+	def __exit__(self, exc_type, exc_val, exc_tb):
+		pass
 
 	def __bytes__(self) -> BinType:
 		return self.key_bytes
@@ -1158,6 +1162,10 @@ class PY_XECRYPT_RSA_KEY:
 	@property
 	def n_size_in_bits(self) -> int:
 		return self.n_size_in_bytes * 8
+
+	@property
+	def struct_name(self) -> str:
+		return f"XECRYPT_RSA{'PRV' if self.is_private_key else 'PUB'}_{self.n_size_in_bits}"
 
 	@property
 	def cqw(self) -> int:
@@ -1205,7 +1213,7 @@ class PY_XECRYPT_RSA_KEY:
 
 	@property
 	def r(self) -> int:
-		return pow(2, (((self.e & UINT32_MASK) - 1) << 11), self.n)
+		return pow(2, ((self.e - 1) << 11), self.n)
 
 	@property
 	def inv_r(self) -> int:
@@ -1214,6 +1222,41 @@ class PY_XECRYPT_RSA_KEY:
 	@property
 	def inv_q(self) -> int:
 		return pow(self.q, -1, self.p)
+
+	def verify_parameters(self) -> bool:
+		# public key and private
+		if self.n < 3:
+			return False
+		if self.e < 3 or self.e >= self.n:
+			return False
+		if self.e & 1 == 0:
+			return False
+
+		if self.is_private_key:
+			if self.dp >= self.n:
+				return False
+			if self.dq >= self.n:
+				return False
+			if self.u >= self.n:
+				return False
+			if self.dp & 1 == 0:
+				return False
+			if self.dq & 1 == 0:
+				return False
+
+			calc_n = self.p * self.q
+			calc_dp = self.d % (self.p - 1)
+			calc_dq = self.d % (self.q - 1)
+
+			if self.n != calc_n:
+				return False
+			if self.dp != calc_dp:
+				return False
+			if self.dq != calc_dq:
+				return False
+			if self.u != self.inv_q:
+				return False
+		return True
 
 	def prv_crypt(self, n: Union[int, BinType]) -> bytes:
 		assert self.is_private_key, "Key isn't a private key!"
@@ -1234,11 +1277,11 @@ class PY_XECRYPT_RSA_KEY:
 	def sig_verify(self, sig: BinType, hash: BinType, salt: BinType) -> bool:
 		return XeCryptBnQwBeSigVerify(sig, hash, salt, self.public_key.to_bytes())
 
-	def pkcs1_sig_create(self, hash: BinType) -> BinType:
+	def sig_create_pkcs1(self, hash: BinType) -> BinType:
 		assert self.is_private_key, "Key isn't a private key!"
 		return XeKeysPkcs1Create(hash, self.key_bytes)
 
-	def pkcs1_sig_verify(self, sig: BinType, hash: BinType) -> bool:
+	def sig_verify_pkcs1(self, sig: BinType, hash: BinType) -> bool:
 		return XeKeysPkcs1Verify(sig, hash, self.public_key.to_bytes())
 
 # constants
