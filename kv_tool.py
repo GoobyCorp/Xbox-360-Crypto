@@ -28,8 +28,8 @@ def set_fuseline(fuse_data: bytes | bytearray, line: int, value: str | int | byt
 	return fuse_data
 
 def main() -> int:
-	cpu_key = bytes.fromhex("EDD52AE49E4E0FAA3B186288DC8E5715")  # XeCryptCpuKeyGen() 50542B1369572BAEBDB26405FBDA1622
-	dvd_key = bytes.fromhex("8E168C4DBB56F38B66CB66B7B4F60441")
+	cpu_key = XeCryptCpuKeyGen()
+	dvd_key = bytes(16)
 	console_type = ConsoleType.DEVKIT
 
 	print("CPU key: " + cpu_key.hex().upper())

@@ -800,9 +800,9 @@ def XeCryptBnQwBeSigVerify(sig: BinType, b_hash: BinType, salt: BinType, pub_key
 		raise Exception("Only PXECRYPT_RSAPUB_2048 can verify signatures")
 
 	si = b2i(sig, True)
-	s0 = pow(si, key.e, key.n)  # reverse of pow(sig, key.d, key.n)
-	s0 = (s0 * key.inv_r) % key.n  # reverse of (x * key.r) % key.n
-	sb = i2b(s0, key.cqw * 8, True)
+	se = pow(si, key.e, key.n)  # reverse of pow(sig, key.d, key.n)
+	sd = (se * key.inv_r) % key.n  # reverse of (si * key.r) % key.n
+	sb = i2b(sd, key.cqw * 8, True)
 
 	sd = XeCryptBnQwBeBufSwap(sb)
 
@@ -1148,6 +1148,7 @@ class PY_XECRYPT_RSA_KEY:
 		except KeyError as e:
 			raise Exception("Invalid key data specified")
 
+	@property
 	def c_struct(self):
 		return self.key_struct
 
@@ -1262,12 +1263,12 @@ class PY_XECRYPT_RSA_KEY:
 		assert self.is_private_key, "Key isn't a private key!"
 		if isinstance(n, (bytes, bytearray)):
 			n = b2i(n, True)
-		return bswap64(XeCryptBnQwNeModExpRoot(n, self.p, self.q, self.dp, self.dq, self.u).to_bytes(self.cqw * 8, "little", signed=False))
+		return i2b(XeCryptBnQwNeModExpRoot(n, self.p, self.q, self.dp, self.dq, self.u), self.n_size_in_bytes, True)
 
 	def pub_crypt(self, n: Union[int, BinType]) -> bytes:
 		if isinstance(n, (bytes, bytearray)):
 			n = b2i(n, True)
-		return bswap64(pow(n, self.e, self.n).to_bytes(self.cqw * 8, "little", signed=False))
+		return i2b(pow(n, self.e, self.n), self.n_size_in_bytes, True)
 
 	def sig_create(self, hash: BinType, salt: BinType) -> BinType:
 		assert self.is_private_key, "Key isn't a private key!"
