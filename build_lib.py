@@ -2,28 +2,154 @@
 
 import subprocess
 from io import BytesIO
-from typing import Union
+from enum import IntEnum
 from pathlib import Path
-from os.path import abspath
-from struct import pack_into, unpack_from
-from ctypes import CDLL, POINTER, c_ubyte, c_uint32
+from typing import Union, TypeVar
+from struct import pack, pack_into, unpack_from
+from ctypes import BigEndianStructure, c_ubyte, c_uint16, c_uint32, c_uint64
 
 from XeCrypt import *
 from StreamIO import *
+from LZX import *
+
+BinType = TypeVar("BinType", bytes, bytearray, memoryview)
 
 BIN_DIR = "bin"
 INCLUDE_DIR = "includes"
 
-# C DLL's
-libcedll = CDLL(abspath("lib/x64/libcedll.dll"))
+# types
+BYTE  = c_ubyte
+WORD  = c_uint16
+DWORD = c_uint32
+QWORD = c_uint64
 
-# C prototypes
-# decompression
-libcedll.ceDecompress.argtypes = [POINTER(c_ubyte), c_uint32]
-libcedll.ceDecompress.restype = c_uint32
-# compression
-libcedll.ceCompress.argtypes = [POINTER(c_ubyte), c_uint32]
-libcedll.ceCompress.restype = c_uint32
+class BLMagic(IntEnum):
+	CA_1BL = 0x0342
+	CB_2BL = 0x4342
+	CC_3BL = 0x4343
+	CD_4BL = 0x4344
+	CE_5BL = 0x4345
+	CF_6BL = 0x4346
+	CG_7BL = 0x4347
+	SB_2BL = 0x5342
+	SC_3BL = 0x5343
+	SD_4BL = 0x5344
+	SE_5BL = 0x5345
+	SF_6BL = 0x5346
+	SG_7BL = 0x5347
+
+# structures
+class NAND_HEADER(BigEndianStructure):
+	_fields_ = [
+		("magic", WORD),
+		("build", WORD),
+		("qfe", WORD),
+		("flags", WORD),
+		("entry", DWORD),
+		("size", DWORD),
+		("copyright", (BYTE * 0x40)),
+		("padding", (BYTE * 0x10)),
+		("kv_length", DWORD),
+		("sys_upd_addr", DWORD),
+		("patch_slots", WORD),
+		("kv_version", WORD),
+		("kv_offset", DWORD),
+		("patch_slot_size", DWORD),
+		("smc_config_offset", DWORD),
+		("smc_length", DWORD),
+		("smc_offset", DWORD)
+	]
+
+class BL_HEADER(BigEndianStructure):
+	_fields_ = [
+		("magic", (BYTE * 2)),
+		("build", WORD),
+		("qfe", WORD),
+		("flags", WORD),
+		("entry", DWORD),
+		("size", DWORD)
+	]
+
+class SB_2BL_HEADER(BigEndianStructure):
+	_fields_ = [
+		("header", BL_HEADER),
+		("nonce", (BYTE * 0x10))
+	]
+
+SC_3BL_HEADER = SB_2BL_HEADER
+SD_4BL_HEADER = SB_2BL_HEADER
+SE_5BL_HEADER = SB_2BL_HEADER
+SF_6BL_HEADER = SB_2BL_HEADER
+
+HV_HEADER = BL_HEADER
+
+class BLHeader:
+	include_nonce = True
+
+	magic = None
+	build = None
+	qfe = None
+	flags = None
+	entry_point = None
+	size = None
+
+	nonce = None
+
+	def __init__(self, data: BinType, include_nonce: bool = True):
+		self.include_nonce = include_nonce
+		self.reset()
+		self.parse(data)
+
+	def __bytes__(self) -> BinType:
+		data = pack(">2s 3H 2I", self.magic, self.build, self.qfe, self.flags, self.entry_point, self.size)
+		if self.include_nonce:
+			data += self.nonce
+		return data
+
+	def __dict__(self) -> dict:
+		dct = {"magic": self.magic, "build": self.build, "qfe": self.qfe, "flags": self.flags, "entry_point": self.entry_point, "size": self.size}
+		if self.include_nonce:
+			dct["nonce"] = self.nonce
+		return dct
+
+	def __getitem__(self, item: str) -> Union[BinType, int, bool]:
+		item = item.lower()
+		value = getattr(self, item, None)
+		if value is not None:
+			return value
+
+	def __setitem__(self, key: str, value):
+		key = key.lower()
+		if getattr(self, key, None) is not None:
+			setattr(self, key, value)
+
+	@property
+	def header_size(self) -> int:
+		if self.include_nonce:
+			return 0x20
+		return 0x10
+
+	@property
+	def padded_size(self) -> int:
+		return (self.size + 0xF) & ~0xF
+
+	@property
+	def requires_padding(self) -> bool:
+		return self.padded_size > 0
+
+	def parse(self, data: BinType):
+		(self.magic, self.build, self.qfe, self.flags, self.entry_point, self.size) = unpack_from(">2s 3H 2I", data, 0)
+		if self.include_nonce:
+			(self.nonce,) = unpack_from("16s", data, 0x10)
+
+	def reset(self) -> None:
+		self.include_nonce = True
+		self.magic = None
+		self.build = None
+		self.qfe = None
+		self.flags = None
+		self.size = None
+		self.nonce = None
 
 def assemble_patch(asm_filename: str, bin_filename: str, *defines) -> None:
 	args = [str(Path(BIN_DIR) / "xenon-as.exe"), "-be", "-many", "-mregnames", asm_filename, "-o", "temp.elf"]
@@ -53,16 +179,18 @@ def run_command(path: Union[Path, str], *args: str) -> tuple[int, str]:
 	return result.returncode, result.stdout.decode("UTF8", errors="ignore")
 
 # C functions
-def decompress_se(data: Union[bytes, bytearray]) -> bytearray:
-	(u_size,) = unpack_from(">I", data, 0x28)
-	c_buf = (c_ubyte * u_size)(*data)
-	assert libcedll.ceDecompress(c_buf, len(data)) == u_size, "SE decompression failed"
-	return bytearray(c_buf)
+def decompress_se(data: Union[bytes, bytearray]) -> bytes:
+	data = data[0x30:]  # skip header
+	with LZXDecompression() as lzxd:
+		return lzxd.decompress_continuous(data)
 
-def compress_se(data: Union[bytes, bytearray]) -> bytearray:
-	c_buf = (c_ubyte * len(data))(*data)
-	new_size = libcedll.ceCompress(c_buf, len(data))
-	return bytearray(c_buf)[:new_size]
+def compress_se(data: Union[bytes, bytearray]) -> bytes:
+	with LZXCompression() as lzxc:
+		data = lzxc.compress_continuous(data)
+		data = bytearray(0x30) + data
+		pack_into(">I", data, 0xC, len(data))
+		pack_into(">I", data, 0x28, 0x280000)
+		return data
 
 def sign_sd_4bl(key: Union[PY_XECRYPT_RSA_KEY, bytes, bytearray], salt: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bytearray:
 	if type(key) in [bytes, bytearray]:
@@ -72,7 +200,7 @@ def sign_sd_4bl(key: Union[PY_XECRYPT_RSA_KEY, bytes, bytearray], salt: Union[by
 
 	h = XeCryptRotSumSha(data[:0x10] + data[0x120:])
 	sig = key.sig_create(h, salt)
-	pack_into(f"<{len(sig)}s", data, 0x20, sig)
+	data[0x20:0x20 + len(sig)] = sig
 	return data
 
 def verify_sd_4bl(key: Union[PY_XECRYPT_RSA_KEY, bytes, bytearray], salt: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bool:
@@ -136,6 +264,19 @@ def calc_bldr_pad_size(size: int) -> int:
 	return ((size + 0xF) & ~0xF) - size
 
 __all__ = [
+	# classes
+	"BLHeader",
+
+	# structures
+	"NAND_HEADER",
+	"BL_HEADER",
+	"SB_2BL_HEADER",
+	"SC_3BL_HEADER",
+	"SD_4BL_HEADER",
+	"SE_5BL_HEADER",
+	"HV_HEADER",
+
+	# functions
 	"assemble_patch",
 	"assemble_devkit_patch",
 	"assemble_retail_patch",

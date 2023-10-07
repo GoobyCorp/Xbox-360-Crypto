@@ -1,11 +1,24 @@
 #!/usr/bin/env python3
 
+from enum import IntEnum
+from typing import TypeVar
+from random import randbytes
 from struct import pack_into, unpack_from
 
 from XeCrypt import *
 
+BinLike = TypeVar("BinLike", bytes, bytearray)
+
 # References:
+# http://oct0xor.github.io/2017/05/03/xsm3/
 # https://github.com/oct0xor/xbox_security_method_3
+# https://github.com/InvoxiPlayGames/libxsm3/blob/master/xsm3.c
+
+STATIC_KEY_1 = b""
+STATIC_KEY_2 = b""
+
+DYNAMIC_KEY_1 = b""
+DYNAMIC_KEY_2 = b""
 
 SBOX = bytes([
 	0xB0, 0x3D, 0x9B, 0x70, 0xF3, 0xC7, 0x80, 0x60,
@@ -97,73 +110,60 @@ UsbdSecXSM3GetResponseVerifyProtocolData1 = bytes([
 	0x50, 0x20, 0x60, 0xA9, 0xBC, 0xDE
 ])
 
-kv_key_1 = bytes([
-	0xF1, 0x9D, 0x6F, 0x2C, 0xB1, 0xEE, 0x6A, 0xC4,
-	0x63, 0x53, 0x36, 0xA5, 0x4C, 0x11, 0x00, 0x7D
+xsm3_id_data_ms_controller = bytes([
+	0x49, 0x4B, 0x00, 0x00, 0x17, 0x41, 0x41, 0x41,
+	0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41, 0x41,
+	0x00, 0x00, 0x80, 0x02, 0x5E, 0x04, 0x8E, 0x02,
+	0x03, 0x00, 0x01, 0x01, 0x16
 ])
 
-kv_key_2 = bytes([
-	0xC4, 0x55, 0x82, 0xC8, 0x9F, 0xC3, 0xDA, 0xD2,
-	0x8C, 0x1F, 0xBB, 0xCF, 0x3D, 0x04, 0x9B, 0x6F
-])
+class CryptMode(IntEnum):
+	DECRYPT = 0
+	ENCRYPT = 1
 
-def cksum(cmd: bytes | bytearray) -> int:
-	size = cmd[4]
+def xsm3_calculate_checksum(packet: BinLike) -> int:
+	size = packet[4] + 5
 	csum = 0
-	for i in range(size):
-		csum ^= cmd[i + 5]
-	if csum != cmd[size + 5]:
-		return -1
-	return 0
+	for i in range(5, size):
+		csum ^= packet[i]
+	return csum & 0xFF
 
-def UsbdSecGetIdentificationComplete(data: bytes | bytearray) -> bytes:
-	proto_data = bytearray(0x20)
-	proto_data[:0xF] = data[5:5 + 0xF]
-	(v0, v1, v2, v4, v3) = unpack_from(">2HBHB", data, 5 + 0xF)
-	pack_into(">2H2BH", proto_data, 0x10, v0, v1, v2, v3, v4)
-	return proto_data
+def xsm3_verify_checksum(packet: BinLike) -> bool:
+	pkt_len = packet[4] + 5
+	return xsm3_calculate_checksum(packet) == packet[pkt_len]
 
-def UsbdSecXSM3AuthenticationCrypt(key: bytes | bytearray, data: bytes | bytearray, mode: int) -> bytes:
+def UsbdSecXSM3AuthenticationCrypt(key: BinLike, data: BinLike, mode: CryptMode) -> BinLike:
 	c = XeCryptDes3((key * 2)[:0x18], XeCryptDes3.MODE_CBC, bytes(8))
-	if mode == 1:
-		return c.encrypt(data)
-	else:
+	if mode == CryptMode.DECRYPT:
 		return c.decrypt(data)
+	elif mode == CryptMode.ENCRYPT:
+		return c.encrypt(data)
+	return b""
 
-def UsbdSecXSM3AuthenticationMac(key: bytes | bytearray, salt: bytes | bytearray | None, data: bytes | bytearray, mode: int) -> tuple[bytes, bytes]:
-	temp = bytearray(8)
-	if mode:
-		e = XeCryptDes(key[:8])
-		d = XeCryptDes(key[8:8 + 8])
-		if salt:
-			v0 = int.from_bytes(salt, "big", signed=False)
-			v0 += 1
-			salt = v0.to_bytes(8, "big", signed=False)
-			temp = e.encrypt(salt)
+def UsbdSecXSM3AuthenticationMac(key: BinLike, salt: BinLike | None, data: BinLike) -> tuple[BinLike, BinLike]:
+	temp = b""
 
-	if len(data) >= 8:
-		for i in range(0, len(data), 8):
-			v0 = int.from_bytes(temp, "big", signed=False)
-			v1 = int.from_bytes(data[i:i + 8], "big", signed=False)
-			temp = (v0 ^ v1).to_bytes(8, "big", signed=False)
+	c = XeCryptDes(key[:8])
+	if salt:
+		v0 = int.from_bytes(salt, "big", signed=False)
+		v0 += 1
+		salt = (v0 & 0xFFFFFFFFFFFFFFFF).to_bytes(8, "big", signed=False)
+		temp = c.encrypt(salt)
 
-			if mode:
-				temp = e.encrypt(temp)
-			else:
-				temp = XeCryptDes(key[:8]).encrypt(temp)
+	for i in range(0, len(data), 8):
+		v0 = int.from_bytes(temp, "big", signed=False)
+		v1 = int.from_bytes(data[i:i + 8], "big", signed=False)
+		v0 ^= v1
+		temp = (v0 & 0xFFFFFFFFFFFFFFFF).to_bytes(8, "big", signed=False)
+		temp = c.encrypt(temp)
 
 	temp = bytearray(temp)
 	temp[0] ^= 0x80
 
-	if mode:
-		temp = e.encrypt(temp)
-		temp = d.decrypt(temp)
-		output = e.encrypt(temp)
-	else:
-		output = XeCryptDes3((key * 2)[:0x18], XeCryptDes3.MODE_CBC, bytes(8)).encrypt(temp)
-	return (salt, output)
+	c = XeCryptDes3((key * 2)[:0x18])
+	return (salt, c.encrypt(temp))
 
-def UsbdSecXSMAuthenticationAcr(key: bytes | bytearray, cert: bytes | bytearray, data: bytes | bytearray) -> bytes:
+def UsbdSecXSMAuthenticationAcr(key: BinLike, cert: BinLike, data: BinLike) -> BinLike:
 	block = data[:4] + cert[:4]
 
 	iv = XeCryptParveEcb(key, SBOX, data[0x10:])
@@ -177,112 +177,157 @@ def UsbdSecXSMAuthenticationAcr(key: bytes | bytearray, cert: bytes | bytearray,
 
 	return output
 
+class XSM3State:
+	xsm3_identification_data: BinLike = None
+	xsm3_random_console_data: BinLike = None
+	xsm3_console_id: BinLike = None
+	xsm3_challenge_init_hash: BinLike = None
+	xsm3_random_controller_data: BinLike = None
+
+	xsm3_random_console_data_enc: BinLike = None
+	xsm3_random_console_data_swap_enc: BinLike = None
+
+	def __init__(self, xsm3_ident_packet: BinLike):
+		self.reset()
+
+		self.xsm3_set_identification_data(xsm3_ident_packet)
+
+	def __enter__(self):
+		return self
+
+	def __exit__(self, exc_type, exc_val, exc_tb):
+		pass
+
+	def reset(self) -> None:
+		self.xsm3_identification_data = None
+		self.xsm3_random_console_data = None
+		self.xsm3_console_id = None
+		self.xsm3_challenge_init_hash = None
+		self.xsm3_random_controller_data = None
+
+		self.xsm3_random_console_data_enc = None
+		self.xsm3_random_console_data_swap_enc = None
+
+	def xsm3_set_identification_data(self, ident_packet: BinLike) -> None:
+		assert len(ident_packet) == 0x1D, "Invalid identification packet!"
+
+		if not xsm3_verify_checksum(ident_packet):
+			print("[ Checksum failed when setting identification data! ]")
+
+		(v0, v1, v2, v3, v4, v5) = unpack_from(">15s 2H B H B", ident_packet, 5)
+		self.xsm3_identification_data = bytearray(0x20)
+		pack_into(">15s x 2H 2B H", self.xsm3_identification_data, 0, v0, v1, v2, v3, v5, v4)
+
+	def xsm3_do_challenge_init(self, challenge_packet: BinLike) -> BinLike | None:
+		assert len(challenge_packet) == 0x22, "Invalid challenge packet!"
+
+		if not xsm3_verify_checksum(challenge_packet):
+			print("[ Checksum failed when validating challenge init! ]")
+			return
+
+		# decrypt the packet content using the static key from the keyvault
+		xsm3_decryption_buffer = UsbdSecXSM3AuthenticationCrypt(STATIC_KEY_1, challenge_packet[5:5 + 0x18], CryptMode.DECRYPT)
+		# first 0x10 bytes are random data
+		self.xsm3_random_console_data = xsm3_decryption_buffer[:0x10]
+		# next 0x8 bytes are from the console certificate
+		self.xsm3_console_id = xsm3_decryption_buffer[0x10:0x10 + 8]
+		# last 4 bytes of the packet are the last 4 bytes of the MAC
+		(salt, incoming_packet_mac) = UsbdSecXSM3AuthenticationMac(STATIC_KEY_2, None, challenge_packet[5:5 + 0x18])
+
+		# validate the MAC
+		if incoming_packet_mac[4:] != challenge_packet[5 + 0x18:5 + 0x18 + 4]:
+			print("[ MAC failed when validating challenge init! ]")
+			return
+
+		# the random value is swapped at an 8 byte boundary
+		xsm3_random_console_data_swap = self.xsm3_random_console_data[8:8 + 8] + self.xsm3_random_console_data[:8]
+		# and then encrypted - the regular value encrypted with key 1, the swapped value encrypted with key 2
+		self.xsm3_random_console_data_enc = UsbdSecXSM3AuthenticationCrypt(STATIC_KEY_1, self.xsm3_random_console_data, CryptMode.ENCRYPT)
+		self.xsm3_random_console_data_swap_enc = UsbdSecXSM3AuthenticationCrypt(STATIC_KEY_2, xsm3_random_console_data_swap, CryptMode.ENCRYPT)
+
+		# generate random data
+		self.xsm3_random_controller_data = randbytes(0x10)
+
+		# set header and packet length of challenge response
+		xsm3_challenge_response = bytearray(0x30)
+		xsm3_challenge_response[0] = 0x49  # packet magic
+		xsm3_challenge_response[1] = 0x4C
+		xsm3_challenge_response[4] = 0x28  # packet length
+
+		# copy random controller, random console data to the encryption buffer
+		xsm3_decryption_buffer = bytearray(xsm3_decryption_buffer)
+		xsm3_decryption_buffer[:0x10] = self.xsm3_random_controller_data
+		xsm3_decryption_buffer[0x10:0x10 + 0x10] = self.xsm3_random_console_data
+
+		# save the sha1 hash of the decrypted contents for later
+		self.xsm3_challenge_init_hash = XeCryptSha(xsm3_decryption_buffer)
+
+		# encrypt challenge response packet using the encrypted random key
+		xsm3_challenge_response[5:5 + 0x20] = UsbdSecXSM3AuthenticationCrypt(self.xsm3_random_console_data_enc, xsm3_decryption_buffer, CryptMode.ENCRYPT)
+		# calculate MAC using the encrypted swapped random key and use it to calculate ACR
+		(salt, xsm3_response_packet_mac) = UsbdSecXSM3AuthenticationMac(self.xsm3_random_console_data_swap_enc, None, xsm3_challenge_response[5:5 + 0x20])
+		# calculate ACR and append to the end of the xsm3_challenge_response
+		xsm3_challenge_response[5 + 0x20:5 + 0x20 + 8] = UsbdSecXSMAuthenticationAcr(xsm3_response_packet_mac, self.xsm3_console_id, self.xsm3_identification_data)
+		# calculate the checksum for the response packet
+		xsm3_challenge_response[5 + 0x28] = xsm3_calculate_checksum(xsm3_challenge_response)
+
+		self.xsm3_random_console_data = bytearray(self.xsm3_random_console_data)
+		self.xsm3_random_console_data[:4] = self.xsm3_random_controller_data[0xC:0xC + 4]
+		self.xsm3_random_console_data[4:4 + 4] = self.xsm3_random_console_data[0xC:0xC + 4]
+
+		return xsm3_challenge_response[:5 + xsm3_challenge_response[4] + 1]
+
+	def xsm3_do_challenge_verify(self, challenge_packet: BinLike) -> BinLike | None:
+		assert len(challenge_packet) == 0x16, "Invalid challenge packet!"
+
+		if not xsm3_verify_checksum(challenge_packet):
+			print("[ Checksum failed when validating challenge verify! ]")
+			return
+
+		xsm3_decryption_buffer = UsbdSecXSM3AuthenticationCrypt(self.xsm3_random_controller_data, challenge_packet[5:5 + 8], CryptMode.DECRYPT)
+		self.xsm3_random_console_data[8:8 + 8] = xsm3_decryption_buffer
+
+		(salt, xsm3_incoming_packet_mac) = UsbdSecXSM3AuthenticationMac(self.xsm3_challenge_init_hash, self.xsm3_random_console_data, challenge_packet[5:5 + 8])
+
+		if xsm3_incoming_packet_mac != challenge_packet[5 + 8:5 + 8 + 8]:
+			print("[ MAC failed when validating challenge verify! ]")
+			return
+
+		# set header and packet length of challenge response
+		xsm3_challenge_response = bytearray(0x30)
+		xsm3_challenge_response[0] = 0x49  # packet magic
+		xsm3_challenge_response[1] = 0x4C
+		xsm3_challenge_response[4] = 0x10  # packet length
+
+		# calculate the ACR value and encrypt it into the outgoing packet using the encrypted random
+		xsm3_decryption_buffer = UsbdSecXSMAuthenticationAcr(self.xsm3_identification_data, self.xsm3_console_id, self.xsm3_random_console_data[8:])
+		xsm3_challenge_response[5:5 + 8] = UsbdSecXSM3AuthenticationCrypt(self.xsm3_random_console_data_enc, xsm3_decryption_buffer[:8], CryptMode.ENCRYPT)
+		# calculate the MAC of the encrypted packet and append it to the end
+		(salt, xsm3_challenge_response[5 + 8:5 + 8 + 8]) = UsbdSecXSM3AuthenticationMac(self.xsm3_random_console_data_swap_enc, self.xsm3_random_console_data, xsm3_challenge_response[5:5 + 8])
+		# calculate the checksum for the response packet
+		xsm3_challenge_response[5 + 0x10] = xsm3_calculate_checksum(xsm3_challenge_response)
+
+		return xsm3_challenge_response[:5 + xsm3_challenge_response[4] + 1]
+
 def main() -> int:
+	global STATIC_KEY_1, STATIC_KEY_2, DYNAMIC_KEY_1, DYNAMIC_KEY_2
+
 	kv = XECRYPT_KEYVAULT.from_buffer_copy(read_file("KV/banned.bin"))
 
-	k1 = bytes(kv.global_dev_2des_key_1)
-	k2 = bytes(kv.global_dev_2des_key_2)
+	STATIC_KEY_1 = bytes(kv.global_dev_2des_key_1)
+	STATIC_KEY_2 = bytes(kv.global_dev_2des_key_2)
+	DYNAMIC_KEY_1 = bytes.fromhex("F19D6F2CB1EE6AC4635336A54C11007D")
+	DYNAMIC_KEY_2 = bytes.fromhex("C45582C89FC3DAD28C1FBBCF3D049B6F")
 
-	print("UsbdSecXSM3GetIdentificationProtocolData")
+	# cid = bytearray.fromhex("086D40C2C6")
+	# cid += bytearray.fromhex("808182")
+	# hcid = XeCryptSha(cid)[:0x10]
 
-	if cksum(UsbdSecXSM3GetIdentificationProtocolData):
-		return -1
-
-	proto_data = UsbdSecGetIdentificationComplete(UsbdSecXSM3GetIdentificationProtocolData)
-
-	print("UsbdSecXSM3AuthenticationChallenge")
-
-	if cksum(UsbdSecXSM3SetChallengeProtocolData):
-		return -1
-
-	dec_data = UsbdSecXSM3AuthenticationCrypt(k1, UsbdSecXSM3SetChallengeProtocolData[5:5 + 0x18], 0)
-
-	# random = bytearray(0x10)
-	random = bytearray(dec_data[:0x10])
-
-	# random_0 = dec_data[:0x10]
-	cert = dec_data[0x10:0x10 + 8]
-	mac_copy = UsbdSecXSM3SetChallengeProtocolData[29:29 + 4]
-
-	random_enc = UsbdSecXSM3AuthenticationCrypt(kv_key_1, random, 1)
-
-	random_swap = random[8:8 + 8] + random[:8]
-
-	random_swap_enc = UsbdSecXSM3AuthenticationCrypt(kv_key_2, random_swap, 1)
-
-	(salt, mac) = UsbdSecXSM3AuthenticationMac(k2, None, UsbdSecXSM3SetChallengeProtocolData[5:5 + 0x18], 0)
-
-	if mac[4:] != mac_copy:
-		print("MAC is wrong!")
-		return -1
-
-	print("UsbdSecXSM3GetResponseChallengeProtocolData")
-
-	if cksum(UsbdSecXSM3GetResponseChallengeProtocolData):
-		return -1
-
-	dec_data = UsbdSecXSM3AuthenticationCrypt(random_enc, UsbdSecXSM3GetResponseChallengeProtocolData[5:5 + 0x20], 0)
-
-	usb_random = dec_data[:0x10]
-	rnd = dec_data[0x10:0x10 + 0x10]
-	acr_copy = UsbdSecXSM3GetResponseChallengeProtocolData[37:37 + 8]
-
-	(salt, mac) = UsbdSecXSM3AuthenticationMac(random_swap_enc, None, UsbdSecXSM3GetResponseChallengeProtocolData[5:5 + 0x20], 1)
-
-	acr = UsbdSecXSMAuthenticationAcr(mac, cert, proto_data)
-
-	if random != rnd:
-		print("Random is wrong!")
-		return -1
-
-	if acr != acr_copy:
-		print("ACR is wrong!")
-		return -1
-
-	usb_cmd_hash = XeCryptSha(dec_data[:0x20])
-
-	pack_into("4s4s", random, 0, usb_random[0xC:0xC + 4], random[0xC:0xC + 4])
-
-	print("UsbdSecXSM3SetVerifyProtocolData1")
-
-	if cksum(UsbdSecXSM3SetVerifyProtocolData1):
-		return -1
-
-	dec_data = UsbdSecXSM3AuthenticationCrypt(usb_random, UsbdSecXSM3SetVerifyProtocolData1[5:5 + 8], 0)
-
-	pack_into("8s", random, 8, dec_data[:8])
-
-	mac_copy = UsbdSecXSM3SetVerifyProtocolData1[5 + 8:5 + 8 + 8]
-
-	(salt, mac) = UsbdSecXSM3AuthenticationMac(usb_cmd_hash, random[:8], UsbdSecXSM3SetVerifyProtocolData1[5:5 + 8], 1)
-	random[:8] = salt
-
-	if mac != mac_copy:
-		print("MAC is wrong!")
-		return -1
-
-	print("UsbdSecXSM3GetResponseVerifyProtocolData1")
-
-	if cksum(UsbdSecXSM3GetResponseVerifyProtocolData1):
-		return -1
-
-	dec_data = UsbdSecXSM3AuthenticationCrypt(random_enc, UsbdSecXSM3GetResponseVerifyProtocolData1[5:5 + 8], 0)
-
-	acr_copy = dec_data[:8]
-	mac_copy = UsbdSecXSM3GetResponseVerifyProtocolData1[5 + 8:5 + 8 + 8]
-
-	(salt, mac) = UsbdSecXSM3AuthenticationMac(random_swap_enc, random[:8], UsbdSecXSM3GetResponseVerifyProtocolData1[5:5 + 8], 1)
-	random[:8] = salt
-
-	acr = UsbdSecXSMAuthenticationAcr(random[8:8 + 8], cert, proto_data)
-
-	if mac != mac_copy:
-		print("MAC is wrong!")
-		return -1
-
-	if acr != acr_copy:
-		print("ACR is wrong!")
-		return -1
+	with XSM3State(xsm3_id_data_ms_controller) as xsm3:
+		xsm3_challenge_response = xsm3.xsm3_do_challenge_init(UsbdSecXSM3SetChallengeProtocolData)
+		print(f"0x{len(xsm3_challenge_response):X}")
+		xsm3_challenge_response = xsm3.xsm3_do_challenge_verify(UsbdSecXSM3GetResponseVerifyProtocolData1)
+		print(f"0x{len(xsm3_challenge_response):X}")
 
 	return 0
 

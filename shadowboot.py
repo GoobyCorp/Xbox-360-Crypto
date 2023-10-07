@@ -248,6 +248,10 @@ class ShadowbootImage:
 				"header": hdr
 			}
 
+			#print(bl_name)
+			#print(self.img_map[bl_name]["size"])
+			#print(self.img_map[bl_name]["pad_size"])
+
 			# derive keys
 			if bl_name == "SB":
 				self.img_map[bl_name]["key"] = XeCryptHmacSha(XECRYPT_1BL_KEY, hdr.nonce)[:0x10]
@@ -382,7 +386,7 @@ class ShadowbootImage:
 		self.sf_salt = self.sd_data[576:576 + 0xA]
 		self.se_digest = self.sd_data[588:588 + 0x14]
 		# SMC and kernel
-		if self.smc_data is not None:
+		if self.smc_data is not None and self.smc_data != b"":
 			num = self.smc_data[256]
 			self.console_type = [
 				"Error",
@@ -420,13 +424,13 @@ class ShadowbootImage:
 		return self.sb_pub_key.sig_verify(self.sd_sig, sd_hash, self.sd_salt)
 
 	def check_hash_sd_4bl(self) -> bool:
-		if self.sd_digest != b"\x00" * len(self.sd_digest):
+		if self.sd_digest != bytes(len(self.sd_digest)):
 			return XeCryptRotSumSha(self.sd_data[:0x10] + self.sd_data[0x20:]) == self.sd_digest
 		return True
 
 	def check_hash_se_5bl(self) -> bool:
-		if self.se_digest != b"\x00" * len(self.se_digest):
-			return XeCryptRotSumSha(self.se_data[:0x10] + self.se_data[0x20:] + (b"\x00" * calc_bldr_pad_size(len(self.se_data)))) == self.se_digest
+		if self.se_digest != bytes(len(self.se_digest)):
+			return XeCryptRotSumSha(self.se_data[:0x10] + self.se_data[0x20:] + bytes(calc_bldr_pad_size(len(self.se_data)))) == self.se_digest
 		return True
 
 	def print_info(self) -> None:
@@ -606,7 +610,7 @@ def main() -> int:
 		new_sb_key = XeCryptHmacSha(XECRYPT_1BL_KEY, new_sb_nonce)[:0x10]
 
 		new_sc_nonce = XeCryptRandom(0x10)
-		new_sc_key = XeCryptHmacSha((b"\x00" * 0x10), new_sc_nonce)[:0x10]
+		new_sc_key = XeCryptHmacSha(bytes(0x10), new_sc_nonce)[:0x10]
 
 		new_sd_nonce = XeCryptRandom(0x10)
 		new_sd_key = XeCryptHmacSha(new_sc_key, new_sd_nonce)[:0x10]
@@ -637,16 +641,16 @@ def main() -> int:
 		nand_header.entry = 0x8000
 
 		nand_header.copyright = (c_ubyte * 0x40)(*copyright)
-		nand_header.sys_upd_addr = 0xD4000
+		nand_header.sys_upd_addr = SHADOWBOOT_SIZE
 		nand_header.patch_slots = 2
 		nand_header.kv_version = 0x712
 		nand_header.patch_slot_size = 0x10000
 
 		# create room for the NAND header
 		print("Creating empty NAND header...")
-		new_img = bytearray(sizeof(nand_header))
+		new_img = bytearray(sizeof(NAND_HEADER))
 
-		new_img += (b"\x00" * (0x8000 - len(new_img)))
+		new_img += bytes(0x8000 - len(new_img))
 
 		# SMC
 		smc_offset = len(new_img)
@@ -685,12 +689,13 @@ def main() -> int:
 		# nand_header.entry_point = sb_offset
 		print(f"Encrypting and writing SB @ 0x{sb_offset:04X}...")
 		nonce_sb = bytearray(sb_data)
-		pack_into("<16s", nonce_sb, 0x10, new_sb_nonce)
+
+		nonce_sb[0x10:0x10 + 0x10] = new_sb_nonce
 
 		if build_manifest["options"]["test_kit"]:
 			print("Compiling for test kit, SB signature will be broken!")
 			assert nonce_sb[0x1348:0x1348 + 4] == bytes.fromhex("419A0014"), "Original bytes mismatch!"
-			pack_into("<4s", nonce_sb, 0x1348, bytes.fromhex("48000194"))
+			nonce_sb[0x1348:0x1348 + 4] = bytes.fromhex("48000194")
 
 		sb_enc = encrypt_bl(new_sb_key, nonce_sb)
 		new_img += sb_enc
@@ -699,7 +704,7 @@ def main() -> int:
 		# write SC
 		print(f"Encrypting and writing SC @ 0x{sc_offset:04X}...")
 		nonce_sc = bytearray(sc_data)
-		pack_into("<16s", nonce_sc, 0x10, new_sc_nonce)
+		nonce_sc[0x10:0x10 + 0x10] = new_sc_nonce
 		sc_enc = encrypt_bl(new_sc_key, nonce_sc)
 		new_img += sc_enc
 		sd_offset = len(new_img)
@@ -708,22 +713,19 @@ def main() -> int:
 		print("Creating SE...")
 		se_dec = se_data
 		print("Compressing SE...")
-		se_com = compress_se(se_dec)
+		se_com = bytearray(compress_se(se_dec))
 
 		# magic, build, QFE, flags, and entry point
 		pack_into(">2s 3H I", se_com, 0, b"SE", build_ver, 0x8000, 0, 0)
 		# write the nonce into the image
-		pack_into("<16s", se_com, 0x10, new_se_nonce)
+		se_com[0x10:0x10 + 0x10] = new_se_nonce
 
 		assert len(se_com) == unpack_from(">I", se_com, 0xC)[0], "Invalid SE size"
 
-		se_com += (b"\x00" * calc_bldr_pad_size(len(se_com)))
+		se_com += bytes(calc_bldr_pad_size(len(se_com)))
 
 		print("Hashing SE...")
 		se_hash = XeCryptRotSumSha(se_com[:0x10] + se_com[0x20:])
-
-		# no idea why this works here!
-		# se_com += (b"\x00" * calc_bldr_pad_size(len(se_com)))
 
 		print("Encrypting SE...")
 		se_enc = encrypt_bl(new_se_key, se_com)
@@ -731,8 +733,10 @@ def main() -> int:
 		# write SD
 		print(f"Signing, encrypting, and writing SD @ 0x{sd_offset:04X}...")
 		nonce_sd = bytearray(sd_data)
-		pack_into("<16s", nonce_sd, 0x10, new_sd_nonce)
-		pack_into("<20s", nonce_sd, 0x24C, se_hash)
+
+		nonce_sd[0x10:0x10 + 0x10] = new_sd_nonce
+		nonce_sd[0x24C:0x24C + 0x14] = se_hash
+
 		sd_patched = nonce_sd
 		# load additional binary data to run after the SD here
 		if sd_code_file.is_file():
@@ -762,11 +766,11 @@ def main() -> int:
 
 		# write NAND header
 		print("Writing NAND header @ 0x0...")
-		pack_into(f"<{sizeof(nand_header)}s", new_img, 0, bytes(nand_header))
+		new_img[:sizeof(NAND_HEADER)] = bytes(nand_header)
 
 		# padding image to 0x1000
 		# new_img += (b"\x00" * calc_pad_size(len(new_img), 0x1000))
-		new_img += (b"\x00" * (SHADOWBOOT_SIZE - len(new_img)))
+		new_img += bytes(SHADOWBOOT_SIZE - len(new_img))
 
 		# write the output image
 		print("Writing output image...")
@@ -778,7 +782,7 @@ def main() -> int:
 			red_size = SHADOWBOOT_SIZE - len(new_img)
 			print(f"Image reduced by {red_size} (0x{red_size:04X}) bytes!")
 
-		if not build_manifest["options"]["test_kit"]:
+		if not args.nochecks or not build_manifest["options"]["test_kit"]:
 			ShadowbootImage.parse(new_img)
 			print("Modified image verified!")
 		else:

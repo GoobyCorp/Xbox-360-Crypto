@@ -12,7 +12,6 @@ __license__ = "BSD"
 __status__ = "Development"
 
 from os import urandom
-from enum import IntEnum
 from pathlib import Path
 from typing import Union, Tuple, Optional, TypeVar
 from struct import pack, unpack, pack_into, unpack_from, calcsize
@@ -25,12 +24,10 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.hazmat.primitives.ciphers import Cipher
 from cryptography.hazmat.primitives.hashes import MD5, SHA1
 from cryptography.hazmat.primitives.ciphers.modes import ECB, CBC
-# from cryptography.hazmat.primitives.asymmetric.utils import Prehashed
 from cryptography.hazmat.primitives.ciphers.algorithms import ARC4, AES, TripleDES
-# from cryptography.hazmat.primitives.asymmetric.padding import PKCS1v15, PSS, MGF1
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey, RSAPrivateKey, RSAPublicNumbers, RSAPrivateNumbers
 
-BinType = TypeVar("BinType", bytes, bytearray)
+BinType = TypeVar("BinType", bytes, bytearray, memoryview)
 
 # globals
 # constants
@@ -81,67 +78,6 @@ BYTE  = c_ubyte
 WORD  = c_uint16
 DWORD = c_uint32
 QWORD = c_uint64
-
-# enumerations
-class BLMagic(IntEnum):
-	CA_1BL = 0x0342
-	CB_2BL = 0x4342
-	CC_3BL = 0x4343
-	CD_4BL = 0x4344
-	CE_5BL = 0x4345
-	CF_6BL = 0x4346
-	CG_7BL = 0x4347
-	SB_2BL = 0x5342
-	SC_3BL = 0x5343
-	SD_4BL = 0x5344
-	SE_5BL = 0x5345
-	SF_6BL = 0x5346
-	SG_7BL = 0x5347
-
-# structures
-class NAND_HEADER(BigEndianStructure):
-	_fields_ = [
-		("magic", WORD),
-		("build", WORD),
-		("qfe", WORD),
-		("flags", WORD),
-		("entry", DWORD),
-		("size", DWORD),
-		("copyright", (BYTE * 0x40)),
-		("padding", (BYTE * 0x10)),
-		("kv_length", DWORD),
-		("sys_upd_addr", DWORD),
-		("patch_slots", WORD),
-		("kv_version", WORD),
-		("kv_offset", DWORD),
-		("patch_slot_size", DWORD),
-		("smc_config_offset", DWORD),
-		("smc_length", DWORD),
-		("smc_offset", DWORD)
-	]
-
-class BL_HEADER(BigEndianStructure):
-	_fields_ = [
-		("magic", (BYTE * 2)),
-		("build", WORD),
-		("qfe", WORD),
-		("flags", WORD),
-		("entry", DWORD),
-		("size", DWORD)
-	]
-
-class SB_2BL_HEADER(BigEndianStructure):
-	_fields_ = [
-		("header", BL_HEADER),
-		("nonce", (BYTE * 0x10))
-	]
-
-SC_3BL_HEADER = SB_2BL_HEADER
-SD_4BL_HEADER = SB_2BL_HEADER
-SE_5BL_HEADER = SB_2BL_HEADER
-SF_6BL_HEADER = SB_2BL_HEADER
-
-HV_HEADER = BL_HEADER
 
 class XECRYPT_SIG(BigEndianStructure):
 	_fields_ = [
@@ -1021,75 +957,6 @@ def XeCryptPageEccEncode(data: BinType) -> BinType:
 		v1 >>= 1
 	return bytes(data)
 
-# helper classes
-class BLHeader:
-	include_nonce = True
-
-	magic = None
-	build = None
-	qfe = None
-	flags = None
-	entry_point = None
-	size = None
-
-	nonce = None
-
-	def __init__(self, data: BinType, include_nonce: bool = True):
-		self.include_nonce = include_nonce
-		self.reset()
-		self.parse(data)
-
-	def __bytes__(self) -> BinType:
-		data = pack(">2s 3H 2I", self.magic, self.build, self.qfe, self.flags, self.entry_point, self.size)
-		if self.include_nonce:
-			data += self.nonce
-		return data
-
-	def __dict__(self) -> dict:
-		dct = {"magic": self.magic, "build": self.build, "qfe": self.qfe, "flags": self.flags, "entry_point": self.entry_point, "size": self.size}
-		if self.include_nonce:
-			dct["nonce"] = self.nonce
-		return dct
-
-	def __getitem__(self, item: str) -> Union[BinType, int, bool]:
-		item = item.lower()
-		value = getattr(self, item, None)
-		if value is not None:
-			return value
-
-	def __setitem__(self, key: str, value):
-		key = key.lower()
-		if getattr(self, key, None) is not None:
-			setattr(self, key, value)
-
-	@property
-	def header_size(self) -> int:
-		if self.include_nonce:
-			return 0x20
-		return 0x10
-
-	@property
-	def padded_size(self) -> int:
-		return (self.size + 0xF) & ~0xF
-
-	@property
-	def requires_padding(self) -> bool:
-		return self.padded_size > 0
-
-	def parse(self, data: BinType):
-		(self.magic, self.build, self.qfe, self.flags, self.entry_point, self.size) = unpack_from(">2s 3H 2I", data, 0)
-		if self.include_nonce:
-			(self.nonce,) = unpack_from("16s", data, 0x10)
-
-	def reset(self) -> None:
-		self.include_nonce = True
-		self.magic = None
-		self.build = None
-		self.qfe = None
-		self.flags = None
-		self.size = None
-		self.nonce = None
-
 # managed public key "interfaces"
 class PY_XECRYPT_RSA_KEY:
 	key_bytes = None
@@ -1313,17 +1180,6 @@ __all__ = [
 
 # structures
 __all__.extend([
-	"NAND_HEADER",
-	"BL_HEADER",
-	"SB_2BL_HEADER",
-	"SC_3BL_HEADER",
-	"SD_4BL_HEADER",
-	"SE_5BL_HEADER",
-	"HV_HEADER",
-	# "SMALLBLOCK",
-	# "BIGONSMALL",
-	# "BIGBLOCK",
-	
 	"XECRYPT_RSA",
 	"XECRYPT_RSAPUB_1024",
 	"XECRYPT_RSAPUB_1536",
@@ -1336,16 +1192,6 @@ __all__.extend([
 	"XECRYPT_SIG",
 
 	"XECRYPT_KEYVAULT"
-])
-
-# helper classes
-__all__.extend([
-	"BLHeader"
-])
-
-# enums
-__all__.extend([
-	"BLMagic"
 ])
 
 # functions
