@@ -11,14 +11,17 @@ from json import loads
 from pathlib import Path
 from os.path import isfile
 from binascii import crc32
-from ctypes import sizeof, c_ubyte
 from argparse import ArgumentParser
+from typing import TypeVar, Optional
 from struct import pack, pack_into, unpack_from
+from ctypes import sizeof, create_string_buffer
 
 from XeCrypt import *
 from StreamIO import *
 from build_lib import *
 from keystore import load_and_verify_1bl_pub, load_and_verify_sb_prv
+
+BinLike = TypeVar("BinLike", bytes, bytearray, memoryview)
 
 # constants
 BIN_DIR = "bin"
@@ -172,20 +175,138 @@ class ShadowbootImage:
 		return img
 
 	@staticmethod
-	def create():
+	def create(sb_data: BinLike, sc_data: BinLike, sd_data: BinLike, se_data: BinLike, patches: Optional[BinLike] = None, test_kit: Optional[bool] = False, build_version: Optional[int] = BUILD_VER) -> bytes:
 		# probably never going to actually implement this since I have building working already
+		img = ShadowbootImage()
 
 		new_sb_nonce = XeCryptRandom(0x10)
 		new_sb_key = XeCryptHmacSha(XECRYPT_1BL_KEY, new_sb_nonce)[:0x10]
 
 		new_sc_nonce = XeCryptRandom(0x10)
-		new_sc_key = XeCryptHmacSha((b"\x00" * 0x10), new_sc_nonce)[:0x10]
+		new_sc_key = XeCryptHmacSha(bytes(0x10), new_sc_nonce)[:0x10]
 
 		new_sd_nonce = XeCryptRandom(0x10)
 		new_sd_key = XeCryptHmacSha(new_sc_key, new_sd_nonce)[:0x10]
 
 		new_se_nonce = XeCryptRandom(0x10)
 		new_se_key = XeCryptHmacSha(new_sd_key, new_se_nonce)[:0x10]
+
+		sb_hdr = BLHeader.parse(sb_data[:0x20])
+		assert sb_hdr.magic == b"SB", "Invalid SB bootloader!"
+		sb_data = sb_data[0x20:]
+
+		sc_hdr = BLHeader.parse(sc_data[:0x20])
+		assert sc_hdr.magic == b"SC", "Invalid SC bootloader!"
+		sc_data = sc_data[0x20:]
+
+		sd_hdr = BLHeader.parse(sd_data[:0x20])
+		assert sd_hdr.magic == b"SD", "Invalid SD bootloader!"
+		sd_data = sd_data[0x20:]
+
+		se_hdr = BLHeader.parse(se_data[:0x20])
+		if se_hdr.magic == b"SE":  # compressed with header
+			se_data = decompress_se(se_data)
+		else:
+			se_hdr = BLHeader.parse(pack(">2s 3H I 4x 16x", b"SE", build_version, 0x8000, 0, 0))
+		assert se_data[:2] == b"^N", "Invalid SE bootloader!"
+
+		# (build_ver,) = unpack_from(">H", se_data, HYPERVISOR_SIZE + 0x460)
+
+		# create NAND header
+		nand_header = NAND_HEADER()
+		nand_header.magic = 0xFF4F
+		nand_header.build = build_version
+		nand_header.qfe = 0x8000
+		nand_header.flags = 0
+		nand_header.entry = sizeof(NAND_HEADER)
+
+		nand_header.copyright = bytes(create_string_buffer(b"\xA9 2005-2023 Microsoft Corporation. All rights reserved", 0x40))
+		# nand_header.sys_upd_addr = SHADOWBOOT_SIZE
+		nand_header.patch_slots = 2
+		nand_header.kv_version = 0x712
+		nand_header.patch_slot_size = 0x10000
+
+		nand_header.smc_offset = 0
+		nand_header.smc_length = 0
+
+		nand_header.kv_offset = 0
+		nand_header.kv_length = 0
+
+		sb_hdr.nonce = new_sb_nonce
+		sc_hdr.nonce = new_sc_nonce
+		sd_hdr.nonce = new_sd_nonce
+		se_hdr.nonce = new_se_nonce
+
+		with BytesIO() as img._stream:
+			img.write(bytes(sizeof(NAND_HEADER)))
+
+			sb_hdr_offs = img.tell()
+			img.write(bytes(sb_hdr))
+			sb_data_offs = img.tell()
+			img.write(sb_data)
+
+			if test_kit:
+				img.seek(sb_hdr_offs + 0x1348)
+				assert img.read(4) == bytes.fromhex("419A0014"), "Original bytes mismatch!"
+				img.seek(-4, SEEK_CUR)
+				img.write(bytes.fromhex("48000194"))
+
+			sc_hdr_offs = img.tell()
+			img.write(bytes(sc_hdr))
+			sc_data_offs = img.tell()
+			img.write(sc_data)
+
+			sd_hdr_offs = img.tell()
+			img.write(bytes(sd_hdr))
+			sd_data_offs = img.tell()
+			img.write(sd_data)
+
+			# apply patches to SE (HV/kernel)
+			if patches is not None:
+				with BytesIO(se_data) as bio:
+					patch_in_place(bio, patches)
+					se_data = bio.getvalue()
+
+			se_data = compress_se(se_data, False)
+			se_hdr.size = len(se_data) + 0x30
+			se_hdr_offs = img.tell()
+			img.write(bytes(se_hdr))
+			se_data_offs = img.tell()
+			img.write(pack(">8x I 4x", 0x280000))
+			img.write(se_data)
+			img.write(bytes(se_hdr.padded_size - se_hdr.size))
+
+			se_hash = calc_se_hash_in_place(img._stream, se_hdr_offs)
+
+			img.seek(sd_hdr_offs + 0x24C)
+			img.write(se_hash)
+			img.seek(0, SEEK_END)
+
+			sign_bl_in_place(img._stream, sd_hdr_offs, SB_PRV_KEY)
+
+			encrypt_bl_in_place(new_sb_key, img._stream, sb_hdr_offs)
+			encrypt_bl_in_place(new_sc_key, img._stream, sc_hdr_offs)
+			encrypt_bl_in_place(new_sd_key, img._stream, sd_hdr_offs)
+			encrypt_bl_in_place(new_se_key, img._stream, se_hdr_offs)
+
+			size = img.tell()
+
+			img.write(bytes(calc_pad_size(size, 0x1000)))
+
+			size = img.tell()
+
+			# point to right after the shadowboot image (idk if this matters)
+			nand_header.sys_upd_addr = size
+
+			img.seek(0)
+			img.write(bytes(nand_header))
+
+			data = img._stream.getvalue()
+
+			if not test_kit:
+				ShadowbootImage.parse(data)
+
+			return data
 
 	def __enter__(self):
 		return self
@@ -230,6 +351,18 @@ class ShadowbootImage:
 		self.is_retail = False
 		self.is_testkit = False
 
+	def read(self, size: int) -> bytes:
+		return self._stream.read(size)
+
+	def write(self, data: BinLike) -> int:
+		return self._stream.write(data)
+
+	def seek(self, offset: int, whence: int = SEEK_SET) -> int:
+		return self._stream.seek(offset, whence)
+
+	def tell(self) -> int:
+		return self._stream.tell()
+
 	def read_header(self, header_type):
 		return header_type.from_buffer_copy(self._stream.read(sizeof(header_type)))
 
@@ -239,7 +372,7 @@ class ShadowbootImage:
 		self._stream.seek(self.nand_header.entry)
 		for i in range(4):
 			# all of them are the same
-			hdr = BLHeader(self._stream.read(0x20))
+			hdr = BLHeader.parse(self._stream.read(0x20))
 			bl_name = hdr.magic.decode("UTF8")
 			self.img_map[bl_name] = {
 				"offset": self._stream.tell() - hdr.header_size,
@@ -521,9 +654,9 @@ def main() -> int:
 			print("Setting up paths...")
 			bd = Path(build_manifest["files"]["base_directory"])
 			base_img_file = Path(build_manifest["files"]["base_image"])
-			smc_bin_file = bd /  build_manifest["files"]["SMC"]
-			smc_cfg_file = bd /  build_manifest["files"]["SMC_config"]
-			kv_file = bd / build_manifest["files"]["KV"]
+			# smc_bin_file = bd /  build_manifest["files"]["SMC"]
+			# smc_cfg_file = bd /  build_manifest["files"]["SMC_config"]
+			# kv_file = bd / build_manifest["files"]["KV"]
 			sb_file = bd / build_manifest["files"]["SB"]
 			sc_file = bd / build_manifest["files"]["SC"]
 			sd_file = bd / build_manifest["files"]["SD"]
@@ -534,9 +667,9 @@ def main() -> int:
 			sd_code_file = bd / build_manifest["files"]["SD_code"]
 			hvk_patches_file = bd / build_manifest["files"]["HVK_patches"]
 		elif args.build_dir is not None:  # using a build directory vs a manifest
-			smc_bin_file = args.build_dir / "SMC_dec.bin"
-			smc_cfg_file = args.build_dir / "SMC_config.bin"
-			kv_file = args.build_dir / "KV_dec.bin"
+			# smc_bin_file = args.build_dir / "SMC_dec.bin"
+			# smc_cfg_file = args.build_dir / "SMC_config.bin"
+			# kv_file = args.build_dir / "KV_dec.bin"
 			sb_file = args.build_dir / "sb.bin"
 			sc_file = args.build_dir / "sc.bin"
 			sd_file = args.build_dir / "sd.bin"
@@ -546,9 +679,9 @@ def main() -> int:
 			base_img_file = args.build_dir / "xboxrom.bin"
 
 			# patches
-			sd_code_file = args.build_dir / "sdc.bin"  # SD code file
-			sd_patches_file = args.build_dir / "sdp.bin"  # SD patches file
-			hvk_patches_file = args.build_dir / "hvk.bin"
+			# sd_code_file = args.build_dir / "sdc.bin"  # SD code file
+			# sd_patches_file = args.build_dir / "sdp.bin"  # SD patches file
+			# hvk_patches_file = args.build_dir / "hvk.bin"
 		else:
 			print("Building requires -m or -b arguments!")
 			return 1
@@ -600,193 +733,8 @@ def main() -> int:
 		else:
 			raise Exception("No HV/kernel pair, SE, or fallback image was provided!")
 
-		if hvk_patches_file.is_file():
-			print("Applying patches to HV and kernel...")
-			se_data = apply_patches(se_data, hvk_patches_file.read_bytes())
-
-		# generate new nonce's and keys
-		print("Generating new nonce's and encryption keys...")
-		new_sb_nonce = XeCryptRandom(0x10)
-		new_sb_key = XeCryptHmacSha(XECRYPT_1BL_KEY, new_sb_nonce)[:0x10]
-
-		new_sc_nonce = XeCryptRandom(0x10)
-		new_sc_key = XeCryptHmacSha(bytes(0x10), new_sc_nonce)[:0x10]
-
-		new_sd_nonce = XeCryptRandom(0x10)
-		new_sd_key = XeCryptHmacSha(new_sc_key, new_sd_nonce)[:0x10]
-
-		new_se_nonce = XeCryptRandom(0x10)
-		new_se_key = XeCryptHmacSha(new_sd_key, new_se_nonce)[:0x10]
-
-		# set header values
-		print("Setting initial NAND header values...")
-		if build_manifest["build"]["copyright"]:
-			print("Using custom copyright...")
-			copyright = b"\xA9 " + build_manifest["build"]["copyright"].encode("UTF8")
-		else:
-			copyright = b"\xA9 2005-2023 Microsoft Corporation. All rights reserved"
-
-		if build_manifest["build"]["version"] > 0:
-			print("Using custom build version...")
-			build_ver = build_manifest["build"]["version"]
-		else:
-			(build_ver,) = unpack_from(">H", se_data, HYPERVISOR_SIZE + 0x40C)
-
-		# create NAND header
-		nand_header = NAND_HEADER()
-		nand_header.magic = 0xFF4F
-		nand_header.build = build_ver
-		nand_header.qfe = 0x8000
-		nand_header.flags = 0
-		nand_header.entry = 0x8000
-
-		nand_header.copyright = (c_ubyte * 0x40)(*copyright)
-		nand_header.sys_upd_addr = SHADOWBOOT_SIZE
-		nand_header.patch_slots = 2
-		nand_header.kv_version = 0x712
-		nand_header.patch_slot_size = 0x10000
-
-		# create room for the NAND header
-		print("Creating empty NAND header...")
-		new_img = bytearray(sizeof(NAND_HEADER))
-
-		new_img += bytes(0x8000 - len(new_img))
-
-		# SMC
-		smc_offset = len(new_img)
-		nand_header.smc_offset = 0x1000  # right after NAND header
-		if build_manifest["options"]["use_smc"]:
-			#if (BUILD_DIR / "SMC_dec.bin").is_file():
-			print(f"Encrypting and writing SMC_dec.bin @ 0x{smc_offset:04X}...")
-			smc_data = XeCryptSmcEncrypt(Path(smc_bin_file).read_bytes())
-			nand_header.smc_length = len(smc_data)
-			# new_img += smc_data
-
-			new_img[nand_header.smc_offset:nand_header.smc_offset + 0x3000] = smc_data
-
-		# KeyVault (no idea if it even loads it)
-		kv_offset = len(new_img)
-		nand_header.kv_offset = 0x4000
-		nand_header.kv_length = 0x4000
-		if build_manifest["options"]["use_kv"]:
-			#if (BUILD_DIR / "KV_dec.bin").is_file():
-			if kv_file.name.lower().endswith("_dec.bin"):
-				cpu_key = bytes.fromhex(build_manifest["build"]["cpu_key"])
-				print(f"Encrypting and writing KV_dec.bin @ 0x{kv_offset:04X}...")
-				kv_data = XeCryptKeyVaultEncrypt(cpu_key, kv_file.read_bytes())
-			elif kv_file.name.lower().endswith("_enc.bin"):
-				print(f"Writing KV_enc.bin @ 0x{kv_offset:04X}...")
-				kv_data = kv_file.read_bytes()
-			else:
-				kv_data = bytes(0x4000)
-		else:
-			kv_data = bytes(0x4000)
-
-		new_img[nand_header.kv_offset:nand_header.kv_offset + 0x4000] = kv_data
-
-		# write SB
-		sb_offset = len(new_img)
-		# nand_header.entry_point = sb_offset
-		print(f"Encrypting and writing SB @ 0x{sb_offset:04X}...")
-		nonce_sb = bytearray(sb_data)
-
-		nonce_sb[0x10:0x10 + 0x10] = new_sb_nonce
-
-		if build_manifest["options"]["test_kit"]:
-			print("Compiling for test kit, SB signature will be broken!")
-			assert nonce_sb[0x1348:0x1348 + 4] == bytes.fromhex("419A0014"), "Original bytes mismatch!"
-			nonce_sb[0x1348:0x1348 + 4] = bytes.fromhex("48000194")
-
-		sb_enc = encrypt_bl(new_sb_key, nonce_sb)
-		new_img += sb_enc
-		sc_offset = len(new_img)
-
-		# write SC
-		print(f"Encrypting and writing SC @ 0x{sc_offset:04X}...")
-		nonce_sc = bytearray(sc_data)
-		nonce_sc[0x10:0x10 + 0x10] = new_sc_nonce
-		sc_enc = encrypt_bl(new_sc_key, nonce_sc)
-		new_img += sc_enc
-		sd_offset = len(new_img)
-
-		# create SE image
-		print("Creating SE...")
-		se_dec = se_data
-		print("Compressing SE...")
-		se_com = bytearray(compress_se(se_dec))
-
-		# magic, build, QFE, flags, and entry point
-		pack_into(">2s 3H I", se_com, 0, b"SE", build_ver, 0x8000, 0, 0)
-		# write the nonce into the image
-		se_com[0x10:0x10 + 0x10] = new_se_nonce
-
-		assert len(se_com) == unpack_from(">I", se_com, 0xC)[0], "Invalid SE size"
-
-		se_com += bytes(calc_bldr_pad_size(len(se_com)))
-
-		print("Hashing SE...")
-		se_hash = XeCryptRotSumSha(se_com[:0x10] + se_com[0x20:])
-
-		print("Encrypting SE...")
-		se_enc = encrypt_bl(new_se_key, se_com)
-
-		# write SD
-		print(f"Signing, encrypting, and writing SD @ 0x{sd_offset:04X}...")
-		nonce_sd = bytearray(sd_data)
-
-		nonce_sd[0x10:0x10 + 0x10] = new_sd_nonce
-		nonce_sd[0x24C:0x24C + 0x14] = se_hash
-
-		sd_patched = nonce_sd
-		# load additional binary data to run after the SD here
-		if sd_code_file.is_file():
-			print("Patching RFID jump and appending SD code binary...")
-			sd_patched = apply_jump_sd_4bl(sd_patched, unpack_from(">I", sd_patched, 0xC)[0])
-			# sd_patched += read_file(patch_loader_file)
-			sd_patched += sd_code_file.read_bytes()
-		# apply SD patches directly
-		if sd_patches_file.is_file():
-			print("Applying SD patches directly...")
-			sd_patched = apply_patches(sd_patched, sd_patches_file.read_bytes())
-
-		assert len(sd_patched) == unpack_from(">I", sd_patched, 0xC)[0], "Invalid SD size"
-
-		if verify_sd_4bl(SB_PRV_KEY, XECRYPT_SD_SALT, sd_patched):
-			print("SD signature is intact, skipping signing...")
-			sd_res = sd_patched
-		else:
-			sd_res = sign_sd_4bl(SB_PRV_KEY, XECRYPT_SD_SALT, sd_patched)
-		sd_enc = encrypt_bl(new_sd_key, sd_res)
-		new_img += sd_enc
-		se_offset = len(new_img)
-
-		# write SE
-		print(f"Writing SE to 0x{se_offset:04X}...")
-		new_img += se_enc
-
-		# write NAND header
-		print("Writing NAND header @ 0x0...")
-		new_img[:sizeof(NAND_HEADER)] = bytes(nand_header)
-
-		# padding image to 0x1000
-		# new_img += (b"\x00" * calc_pad_size(len(new_img), 0x1000))
-		new_img += bytes(SHADOWBOOT_SIZE - len(new_img))
-
-		# write the output image
-		print("Writing output image...")
-		args.output.write_bytes(new_img)
-		img_size = len(new_img)
-
-		print(f"Image size: {img_size}/{SHADOWBOOT_SIZE} (0x{img_size:04X}/0x{SHADOWBOOT_SIZE:04X}) bytes")
-		if len(new_img) < SHADOWBOOT_SIZE:
-			red_size = SHADOWBOOT_SIZE - len(new_img)
-			print(f"Image reduced by {red_size} (0x{red_size:04X}) bytes!")
-
-		if not args.nochecks or not build_manifest["options"]["test_kit"]:
-			ShadowbootImage.parse(new_img)
-			print("Modified image verified!")
-		else:
-			print("Image is test kit compiled, verification is disabled!")
+		data = ShadowbootImage.create(sb_data, sc_data, sd_data, se_data)
+		args.output.write_bytes(data)
 
 		print(f"Final image location: \"{str(args.output.absolute())}\"")
 	elif args.command == "extract":

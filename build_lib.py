@@ -4,15 +4,15 @@ import subprocess
 from io import BytesIO
 from enum import IntEnum
 from pathlib import Path
-from typing import Union, TypeVar
+from typing import Union, TypeVar, BinaryIO
 from struct import pack, pack_into, unpack_from
-from ctypes import BigEndianStructure, c_ubyte, c_uint16, c_uint32, c_uint64
+from ctypes import BigEndianStructure, c_char, c_ubyte, c_uint16, c_uint32, c_uint64
 
 from XeCrypt import *
 from StreamIO import *
 from LZX import *
 
-BinType = TypeVar("BinType", bytes, bytearray, memoryview)
+BinLike = TypeVar("BinLike", bytes, bytearray, memoryview)
 
 BIN_DIR = "bin"
 INCLUDE_DIR = "includes"
@@ -47,7 +47,7 @@ class NAND_HEADER(BigEndianStructure):
 		("flags", WORD),
 		("entry", DWORD),
 		("size", DWORD),
-		("copyright", (BYTE * 0x40)),
+		("copyright", (c_char * 0x40)),
 		("padding", (BYTE * 0x10)),
 		("kv_length", DWORD),
 		("sys_upd_addr", DWORD),
@@ -95,12 +95,12 @@ class BLHeader:
 
 	nonce = None
 
-	def __init__(self, data: BinType, include_nonce: bool = True):
-		self.include_nonce = include_nonce
+	def __init__(self, include_nonce: bool = True):
 		self.reset()
-		self.parse(data)
+		self.include_nonce = include_nonce
+		# self.parse(data)
 
-	def __bytes__(self) -> BinType:
+	def __bytes__(self) -> BinLike:
 		data = pack(">2s 3H 2I", self.magic, self.build, self.qfe, self.flags, self.entry_point, self.size)
 		if self.include_nonce:
 			data += self.nonce
@@ -112,7 +112,7 @@ class BLHeader:
 			dct["nonce"] = self.nonce
 		return dct
 
-	def __getitem__(self, item: str) -> Union[BinType, int, bool]:
+	def __getitem__(self, item: str) -> Union[BinLike, int, bool]:
 		item = item.lower()
 		value = getattr(self, item, None)
 		if value is not None:
@@ -137,10 +137,13 @@ class BLHeader:
 	def requires_padding(self) -> bool:
 		return self.padded_size > 0
 
-	def parse(self, data: BinType):
-		(self.magic, self.build, self.qfe, self.flags, self.entry_point, self.size) = unpack_from(">2s 3H 2I", data, 0)
-		if self.include_nonce:
-			(self.nonce,) = unpack_from("16s", data, 0x10)
+	@staticmethod
+	def parse(data: BinLike, include_nonce: bool = True):
+		hdr = BLHeader(include_nonce)
+		(hdr.magic, hdr.build, hdr.qfe, hdr.flags, hdr.entry_point, hdr.size) = unpack_from(">2s 3H 2I", data, 0)
+		if hdr.include_nonce:
+			(hdr.nonce,) = unpack_from("16s", data, 0x10)
+		return hdr
 
 	def reset(self) -> None:
 		self.include_nonce = True
@@ -178,18 +181,97 @@ def run_command(path: Union[Path, str], *args: str) -> tuple[int, str]:
 	result = subprocess.run(a, shell=True, stdout=subprocess.PIPE)
 	return result.returncode, result.stdout.decode("UTF8", errors="ignore")
 
+
+def get_bl_size_in_place(stream: BinaryIO, offset: int) -> int:
+	stream.seek(offset)
+	magic = stream.read(2)
+	assert magic in [b"SB", b"SC", b"SD", b"SE"], "Invalid bootloader magic!"
+	stream.seek(10, SEEK_CUR)
+	size = int.from_bytes(stream.read(4), "big", signed=False)
+	size -= 0x20
+	size += calc_bldr_pad_size(size)
+	return size
+
+def patch_in_place(stream: BinaryIO, patches: BinLike) -> None:
+	loc = stream.tell()
+	with StreamIO(patches, Endian.BIG) as pio:
+		while True:
+			addr = pio.read_uint32()
+			if addr == 0xFFFFFFFF:
+				break
+			size = pio.read_uint32()
+			data = pio.read(size * 4)
+			stream.seek(addr)
+			stream.write(data)
+	stream.seek(loc)
+
+def encrypt_bl_in_place(key: BinLike, stream: BinaryIO, offset: int) -> None:
+	loc = stream.tell()
+	size = get_bl_size_in_place(stream, offset)
+
+	# skip nonce
+	stream.seek(16, SEEK_CUR)
+	# read data
+	data = stream.read(size)
+	# encrypt data and padding
+	data = encrypt_bl(key, data, False)
+	# write the data back
+	stream.seek(offset + 0x20)
+	stream.write(data)
+	stream.seek(loc)
+
+def calc_se_hash_in_place(stream: BinaryIO, offset: int) -> bytes:
+	loc = stream.tell()
+	size = get_bl_size_in_place(stream, offset)
+
+	# create hash
+	with BytesIO() as bio:
+		stream.seek(offset)
+		bio.write(stream.read(0x10))
+		stream.seek(offset + 0x20)
+		bio.write(stream.read(size))
+		h_data = bio.getvalue()
+	h = XeCryptRotSumSha(h_data)
+
+	stream.seek(loc)
+	return h
+
+def sign_bl_in_place(stream: BinaryIO, offset: int, key: PY_XECRYPT_RSA_KEY) -> None:
+	loc = stream.tell()
+	size = get_bl_size_in_place(stream, offset)
+
+	# create hash
+	with BytesIO() as bio:
+		stream.seek(offset)
+		bio.write(stream.read(0x10))
+		stream.seek(offset + 0x120)
+		bio.write(stream.read(size - 0x100))
+		h_data = bio.getvalue()
+	h = XeCryptRotSumSha(h_data)
+
+	# create signature
+	sig = key.sig_create(h, XECRYPT_SD_SALT)
+
+	# write the signature
+	stream.seek(offset + 0x20)
+	stream.write(sig)
+
+	stream.seek(loc)
+
 # C functions
-def decompress_se(data: Union[bytes, bytearray]) -> bytes:
-	data = data[0x30:]  # skip header
+def decompress_se(data: Union[bytes, bytearray], skip_header: bool = True) -> bytes:
+	if skip_header:
+		data = data[0x30:]
 	with LZXDecompression() as lzxd:
 		return lzxd.decompress_continuous(data)
 
-def compress_se(data: Union[bytes, bytearray]) -> bytes:
+def compress_se(data: Union[bytes, bytearray], include_header: bool = True) -> bytes:
 	with LZXCompression() as lzxc:
 		data = lzxc.compress_continuous(data)
-		data = bytearray(0x30) + data
-		pack_into(">I", data, 0xC, len(data))
-		pack_into(">I", data, 0x28, 0x280000)
+		if include_header:
+			data = bytearray(0x30) + data
+			pack_into(">I", data, 0xC, len(data))
+			pack_into(">I", data, 0x28, 0x280000)
 		return data
 
 def sign_sd_4bl(key: Union[PY_XECRYPT_RSA_KEY, bytes, bytearray], salt: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bytearray:
@@ -211,11 +293,15 @@ def verify_sd_4bl(key: Union[PY_XECRYPT_RSA_KEY, bytes, bytearray], salt: Union[
 	h = XeCryptRotSumSha(data[:0x10] + data[0x120:])
 	return key.sig_verify(sig, h, salt)
 
-def encrypt_bl(key: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bytearray:
+def encrypt_bl(key: Union[bytes, bytearray], data: BinLike, skip_header: bool = True) -> bytearray:
 	with BytesIO(data) as bio:
-		bio.seek(0x20)  # skip header and nonce
+		if skip_header:
+			bio.seek(0x20)  # skip header and nonce
 		bl_data_enc = XeCryptRc4.new(key).encrypt(bio.read())  # read all of the remaining data and encrypt it
-		bio.seek(0x20)  # write the encrypted data back
+		if skip_header:
+			bio.seek(0x20)  # write the encrypted data back
+		else:
+			bio.seek(0)
 		bio.write(bl_data_enc)
 		data = bio.getvalue()
 	return bytearray(data)
@@ -264,6 +350,9 @@ def calc_bldr_pad_size(size: int) -> int:
 	return ((size + 0xF) & ~0xF) - size
 
 __all__ = [
+	# enums
+	"BLMagic",
+
 	# classes
 	"BLHeader",
 
@@ -281,6 +370,13 @@ __all__ = [
 	"assemble_devkit_patch",
 	"assemble_retail_patch",
 	"run_command",
+
+	"get_bl_size_in_place",
+	"patch_in_place",
+	"encrypt_bl_in_place",
+	"calc_se_hash_in_place",
+	"sign_bl_in_place",
+
 	"decompress_se",
 	"compress_se",
 	"sign_sd_4bl",
