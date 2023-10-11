@@ -7,8 +7,8 @@ import patch_checker
 def main() -> None:
 	print("Compiling...")
 	patch_compile.main()
-	print("Patching...")
-	se_patcher.main()
+	# print("Patching...")
+	# se_patcher.main()
 	print("Checking...")
 	patch_checker.main()
 

@@ -5,72 +5,43 @@
 
 # Devkit 17489 patches
 
-.include "../../macros.S"
-.include "../../settings.S"
+.include "macros.S"
+.include "settings.S"
 
-		.globl _start
+	.globl _start
 _start:
 
 # ============================================================================
-#	RGLP header
-#	.long 0x52474C50  #"RGLP"
+#       Optional patches
 # ============================================================================
 
+.if VFUSES == 1
+.print "  --- Adding vfuses ---"
+.include "RGLoader-vfuses.S"
+.endif
 
-#.ifdef SYSROOTFLASH
-#	.print "  --- SYSTEM ROOT MAPPED TO FLASH ---"
-#	.include "RGLoader-17489_sysroot_flash.S"
-#.endif
-
-#.print " --- Adding CPU check ---"
-#.include "RGLoader-17489_cpu_check.S"
-
+.if SYSROOT == 1
 .print "  --- SYSTEM ROOT MAPPED TO HDD ---"
-.include "RGLoader-17489_sysroot_hdd.S"
-
-.print "  --- DISABLING FCRT ---"
-.include "RGLoader-17489_nofcrt.S"
+.include "RGLoader-sysroot.S"
+.endif
 
 .print "  --- KD retries patched to 1 ---"
-.include "RGLoader-17489_kd_1retry.S"
+.include "RGLoader-kd_1retry.S"
 
-.print "  --- Adding HvxPeekPoke ---"
-.include "RGLoader-17489_HvxPeekPoke.S"
+.print "  --- Removing FCRT restriction ---"
+.include "RGLoader-nofcrt.S"
 
 .print "  --- Disabling Mem Protection ---"
-.include "RGLoader-17489_memprot.S"
+.include "RGLoader-memprot.S"
 
 .print "  --- Using spoofed dash ---"
-.include "RGLoader-17489_spoof.S"
+.include "RGLoader-spoof.S"
 
 .print "  --- Ignoring heap errors ---"
-.include "RGLoader-17489_ignoreHeapErr.S"
-
-#.ifdef UARTPOST
-#	.print "  --- Enabling POST through UART ---"
-#	.include "RGLoader-17489-uartPOST.S"
-#.endif
-
+.include "RGLoader-ignoreHeapErr.S"
 
 # ============================================================================
-#       Disable POST codes
-# ============================================================================
-#	MAKEPATCH 0x2200
-#0:
-#	blr
-#9:
-
-# ============================================================================
-#       Test patch to fix wifi
-# ============================================================================
-#	KMAKEPATCH 0x801049A8
-#0:
-#	nop
-#9:
-
-
-# ============================================================================
-#       Retail XEX2 AES key   
+#       Retail XEX2 AES key
 # note: should be static
 # ============================================================================
 	MAKEPATCH 0x000000F0
@@ -80,14 +51,6 @@ _start:
 	.long 0x40583FBB
 	.long 0x0896BF91
 9:
-
-#	MAKEPATCH 0x000000F0
-#0:
-#	.long 0xFF55AABE
-#	.long 0xDEADBEEF
-#	.long 0xDEADC0DE
-#	.long 0xBA115000
-#9:
 
 # ============================================================================
 # 	Enable retail xex decryption
@@ -104,16 +67,16 @@ _start:
 # ============================================================================
 #	HV jump to flag fixer
 # ============================================================================
-	MAKEPATCH 0x000018B8 
+	MAKEPATCH 0x000018B8
 0:
-	ba  0xB188      #(CHANGE THE ADDR TO FLAG FIXING FUNCTIONS ADDR) ^
+	ba  0xB2B8      #(CHANGE THE ADDR TO FLAG FIXING FUNCTIONS ADDR) ^
 9:
 
 # ============================================================================
 #	HV Flag fixing function
 # note: store at empty space
 # ============================================================================
-	MAKEPATCH 0x0000B188 
+	MAKEPATCH 0x0000B2B8
 0:
 	lhz     %r3, 0x6(%r0)  # load flag byte into r3
 	li      %r4, 0x21
@@ -126,27 +89,27 @@ _start:
 # ============================================================================
 #       HvxSecuity Functions  (sets machine acct flags)
 # ============================================================================
-	MAKEPATCH 0x00006C58 #;//HvxSecurityGetActivated
+	MAKEPATCH 0x00006C58  #;// HvxSecurityGetActivated
 0:
 	li     %r3, 0
 	blr
 9:
-	MAKEPATCH 0x00006B98 #;//HvxSecurityGetDetected
+	MAKEPATCH 0x00006B98  #;// HvxSecurityGetDetected
 0:
 	li     %r3, 0
 	blr
 9:
-	MAKEPATCH 0x00006BE8 #;//HvxSecuritySetActivated
+	MAKEPATCH 0x00006BE8  #;// HvxSecuritySetActivated
 0:
 	li     %r3, 0
 	blr
 9:
-	MAKEPATCH 0x00006B00 #;//HvxSecuritySetDetected
+	MAKEPATCH 0x00006B00  #;// HvxSecuritySetDetected
 0:
 	li     %r3, 0
 	blr
 9:
-	MAKEPATCH 0x00006CA8 #;//HvxSecuritySetStat
+	MAKEPATCH 0x00006CA8  #;// HvxSecuritySetStat
 0:
 	li     %r3, 0
 	blr
@@ -156,18 +119,10 @@ _start:
 	li  %r3, 0
 	blr
 9:
-	MAKEPATCH 0x00006C48
+	MAKEPATCH 0x00006C48  #;// HvxSecuritySetActivated
 0:
 	li  %r3, 0
 	blr
-9:
-
-# ============================================================================
-#  KV check patches - Hvxkeyshmacsha
-# ============================================================================
-	MAKEPATCH 0x00004F2C  # First check on
-0:
-	nop
 9:
 
 # ============================================================================
@@ -192,21 +147,19 @@ _start:
 9:
 
 # ============================================================================
-#       Patch XEX flag
+#   Patch XEX flag
 # ============================================================================
-
 	MAKEPATCH 0x000072F0
 0:
 	li %r3, 0
 9:
-
 	MAKEPATCH 0x000076A0
 0:
 	li %r4, 0x8
 	li %r3, 0
 9:
 
-#============================================================================
+# ============================================================================
 #	HV Patch blow fuses              
 # ============================================================================
 	MAKEPATCH 0x0000A1C8
@@ -214,7 +167,6 @@ _start:
 	li %r3, 1 
 	blr
 9:
-
 
 # ============================================================================
 #	Remove fcrt.bin hash check
@@ -225,10 +177,10 @@ _start:
 9:
 
 # ============================================================================
-#       DVDAuth2 retail key
-# note: should stay constant
+#   DVDAuth2 retail key
+#     note: should stay constant
 # ============================================================================
-	MAKEPATCH 0x00010d08
+	MAKEPATCH 0x00010D08
 0:
 	.long 0xD1E3B33A
 	.long 0x6C1EF770
@@ -239,13 +191,13 @@ _start:
 # ============================================================================
 #	HvxDvdAuthRecordXControl  Remove signature check
 # ============================================================================
-	MAKEPATCH 0x00026C04 
+	MAKEPATCH 0x00026C04
 0:
 	li  %r3, 1
 9:
 
 # ============================================================================
-#       HV DAE 
+#   HV DAE
 # ============================================================================
 	MAKEPATCH 0x00029018
 0:
@@ -279,31 +231,10 @@ _start:
 # ============================================================================
 #	HvxExpansionInstall sig check
 # ============================================================================
-	MAKEPATCH 0x00030BAC
+    MAKEPATCH 0x00030BAC
 0:
-	nop
+    nop
 9:
-	MAKEPATCH 0x000206DC
-0:
-	li       %r3,  1
-9:
-	MAKEPATCH 0x00030C24
-0:
-	li       %r3,  0
-9:
-	MAKEPATCH 0x00030BEC
-0:
-	nop
-9:
-
-# ============================================================================
-#	HvxExpansionInstall hash check
-# ============================================================================
-	MAKEPATCH 0x00030C2C 
-0:
-	nop
-9:
-
 
 #------------
 #=============================================================================
@@ -327,7 +258,6 @@ _start:
 0:
 	li     %r3,  1
 9:
-
 	KMAKEPATCH 0x800A0FAC
 0:
 	b   0x18
@@ -344,7 +274,6 @@ _start:
 0:
 	nop
 9:
-
 
 # ============================================================================
 #	XexpVerifyMinimumVersion
@@ -376,7 +305,7 @@ _start:
 9:
 
 # ============================================================================
-#   	SataCdRomAuthenticationExSequence
+#   SataCdRomAuthenticationExSequence
 # ============================================================================
 	KMAKEPATCH 0x800C57D8
 0:
@@ -406,13 +335,11 @@ _start:
 0:
 	nop
 9:
-
 	KMAKEPATCH 0x8014A028
 0:
 	li    %r3, 1
 	blr
 9:
-
 	KMAKEPATCH 0x8014A15C
 0:
 	li   %r3, 1
@@ -434,7 +361,7 @@ _start:
 0:
 	li   %r3, 1
 9:
-	KMAKEPATCH 0x8014C344 
+	KMAKEPATCH 0x8014C344
 0:
 	li   %r3, 1
 9:
@@ -471,7 +398,7 @@ _start:
 9:
 
 # ============================================================================
-#	XexpVerifyMedia Type
+#	XexpVerifyMediaType
 # ============================================================================
 	KMAKEPATCH 0x8009EEDC
 0:
@@ -502,17 +429,6 @@ _start:
 0:
 	li   %r3, 0
 9:
-
-# ============================================================================
-#	XexpTranslateAndVerifyBoundPath
-#       always return 1
-# ============================================================================
-	KMAKEPATCH 0x8009EE78
-0:
-	li   %r3, 1
-9:
-
-
 
 # ============================================================================
 #	StfsMapNewBlock hash mismatch
@@ -571,7 +487,6 @@ _start:
 .set loaderFuncAddr, 0x801C1774 #;//empty space
 .set XexLoadImage, 0x800A3F08
 
-
 	KMAKEPATCH loaderFuncAddr
 0:
 	.set strPath, (loaderFuncAddr + 0x20)
@@ -585,13 +500,15 @@ _start:
 
 	li  %r3, 0
 	KMAKEBRANCH (ldBranchAddr+4)
-	
 1:
-	.string "\\Device\\Harddisk0\\Partition1\\RGLoader.xex\0"
+.if HDD == 1
+    .string "\\Device\\Harddisk0\\Partition1\\RGLoader.xex\0"
+.elseif FLASH == 1
+    .string "\\Device\\Flash\\RGLoader.xex\0"
+.endif
 2:
 	.align 2
 9:
-
 
 	KMAKEPATCH ldBranchAddr
 0:
@@ -600,6 +517,6 @@ _start:
 
 
 # ============================================================================
-	.long 0xffffffff
+	.long 0xFFFFFFFF
 	.end
 # ============================================================================

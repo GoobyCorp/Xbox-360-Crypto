@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 
 """
-Gigantic shout out to cOz for all the help in porting this, without him this wouldn't have been possible!
+Gigantic shoutout to cOz for all the help in porting this, without him this wouldn't have been possible!
 """
 
 __author__ = "Visual Studio"

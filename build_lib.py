@@ -15,7 +15,7 @@ from LZX import *
 BinLike = TypeVar("BinLike", bytes, bytearray, memoryview)
 
 BIN_DIR = "bin"
-INCLUDE_DIR = "includes"
+INCLUDE_DIR = "Patches/include"
 
 # types
 BYTE  = c_ubyte
@@ -39,7 +39,7 @@ class BLMagic(IntEnum):
 	SG_7BL = 0x5347
 
 # structures
-class NAND_HEADER(BigEndianStructure):
+class FLASH_HEADER(BigEndianStructure):
 	_fields_ = [
 		("magic", WORD),
 		("build", WORD),
@@ -60,7 +60,7 @@ class NAND_HEADER(BigEndianStructure):
 		("smc_offset", DWORD)
 	]
 
-class BL_HEADER(BigEndianStructure):
+class BLDR_HEADER(BigEndianStructure):
 	_fields_ = [
 		("magic", (BYTE * 2)),
 		("build", WORD),
@@ -72,7 +72,7 @@ class BL_HEADER(BigEndianStructure):
 
 class SB_2BL_HEADER(BigEndianStructure):
 	_fields_ = [
-		("header", BL_HEADER),
+		("header", BLDR_HEADER),
 		("nonce", (BYTE * 0x10))
 	]
 
@@ -81,7 +81,7 @@ SD_4BL_HEADER = SB_2BL_HEADER
 SE_5BL_HEADER = SB_2BL_HEADER
 SF_6BL_HEADER = SB_2BL_HEADER
 
-HV_HEADER = BL_HEADER
+HV_HEADER = BLDR_HEADER
 
 class BLHeader:
 	include_nonce = True
@@ -174,6 +174,18 @@ def assemble_devkit_patch(asm_filename: str, bin_filename: str, *defines) -> Non
 def assemble_retail_patch(asm_filename: str, bin_filename: str, *defines) -> None:
 	assemble_patch(asm_filename, bin_filename, "RETAIL", *defines)
 
+def assemble_rgl_flash(asm_filename: str, bin_filename: str, *defines) -> None:
+	assemble_patch(asm_filename, bin_filename, "FLASH", *defines)
+
+def assemble_rgl_vfuses_flash(asm_filename: str, bin_filename: str, *defines) -> None:
+	assemble_patch(asm_filename, bin_filename, "VFUSES", "FLASH", *defines)
+
+def assemble_rgl_hdd(asm_filename: str, bin_filename: str, *defines) -> None:
+	assemble_patch(asm_filename, bin_filename, "HDD", *defines)
+
+def assemble_rgl_vfuses_hdd(asm_filename: str, bin_filename: str, *defines) -> None:
+	assemble_patch(asm_filename, bin_filename, "VFUSES", "HDD", *defines)
+
 def run_command(path: Union[Path, str], *args: str) -> tuple[int, str]:
 	ep = Path(path)  # executable path
 	a = [str(ep.absolute())]
@@ -181,8 +193,7 @@ def run_command(path: Union[Path, str], *args: str) -> tuple[int, str]:
 	result = subprocess.run(a, shell=True, stdout=subprocess.PIPE)
 	return result.returncode, result.stdout.decode("UTF8", errors="ignore")
 
-
-def get_bl_size_in_place(stream: BinaryIO, offset: int) -> int:
+def get_bldr_size_in_place(stream: BinaryIO, offset: int) -> int:
 	stream.seek(offset)
 	magic = stream.read(2)
 	assert magic in [b"SB", b"SC", b"SD", b"SE"], "Invalid bootloader magic!"
@@ -192,7 +203,8 @@ def get_bl_size_in_place(stream: BinaryIO, offset: int) -> int:
 	size += calc_bldr_pad_size(size)
 	return size
 
-def patch_in_place(stream: BinaryIO, patches: BinLike) -> None:
+def patch_in_place(stream: BinaryIO, patches: BinLike) -> int:
+	c = 0
 	loc = stream.tell()
 	with StreamIO(patches, Endian.BIG) as pio:
 		while True:
@@ -200,14 +212,21 @@ def patch_in_place(stream: BinaryIO, patches: BinLike) -> None:
 			if addr == 0xFFFFFFFF:
 				break
 			size = pio.read_uint32()
-			data = pio.read(size * 4)
+			size *= 4
+			data = pio.read(size)
+			stream.seek(addr)
+			test = stream.read(size)
+			if test == data:
+				continue
 			stream.seek(addr)
 			stream.write(data)
+			c += 1
 	stream.seek(loc)
+	return c
 
-def encrypt_bl_in_place(key: BinLike, stream: BinaryIO, offset: int) -> None:
+def encrypt_bldr_in_place(key: BinLike, stream: BinaryIO, offset: int) -> None:
 	loc = stream.tell()
-	size = get_bl_size_in_place(stream, offset)
+	size = get_bldr_size_in_place(stream, offset)
 
 	# skip nonce
 	stream.seek(16, SEEK_CUR)
@@ -222,7 +241,7 @@ def encrypt_bl_in_place(key: BinLike, stream: BinaryIO, offset: int) -> None:
 
 def calc_se_hash_in_place(stream: BinaryIO, offset: int) -> bytes:
 	loc = stream.tell()
-	size = get_bl_size_in_place(stream, offset)
+	size = get_bldr_size_in_place(stream, offset)
 
 	# create hash
 	with BytesIO() as bio:
@@ -236,9 +255,9 @@ def calc_se_hash_in_place(stream: BinaryIO, offset: int) -> bytes:
 	stream.seek(loc)
 	return h
 
-def sign_bl_in_place(stream: BinaryIO, offset: int, key: PY_XECRYPT_RSA_KEY) -> None:
+def sign_bldr_in_place(stream: BinaryIO, offset: int, key: PY_XECRYPT_RSA_KEY) -> None:
 	loc = stream.tell()
-	size = get_bl_size_in_place(stream, offset)
+	size = get_bldr_size_in_place(stream, offset)
 
 	# create hash
 	with BytesIO() as bio:
@@ -357,8 +376,8 @@ __all__ = [
 	"BLHeader",
 
 	# structures
-	"NAND_HEADER",
-	"BL_HEADER",
+	"FLASH_HEADER",
+	"BLDR_HEADER",
 	"SB_2BL_HEADER",
 	"SC_3BL_HEADER",
 	"SD_4BL_HEADER",
@@ -369,13 +388,17 @@ __all__ = [
 	"assemble_patch",
 	"assemble_devkit_patch",
 	"assemble_retail_patch",
+	"assemble_rgl_flash",
+	"assemble_rgl_vfuses_flash",
+	"assemble_rgl_hdd",
+	"assemble_rgl_vfuses_hdd",
 	"run_command",
 
-	"get_bl_size_in_place",
+	"get_bldr_size_in_place",
 	"patch_in_place",
-	"encrypt_bl_in_place",
+	"encrypt_bldr_in_place",
 	"calc_se_hash_in_place",
-	"sign_bl_in_place",
+	"sign_bldr_in_place",
 
 	"decompress_se",
 	"compress_se",
