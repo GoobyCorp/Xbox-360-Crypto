@@ -11,8 +11,8 @@ __version__ = "1.0.0.0"
 __license__ = "BSD"
 __status__ = "Development"
 
-from os import urandom
 from pathlib import Path
+from random import randbytes
 from typing import Union, Tuple, Optional, TypeVar
 from struct import pack, unpack, pack_into, unpack_from, calcsize
 from ctypes import BigEndianStructure, sizeof, c_ubyte, c_uint16, c_uint32, c_uint64
@@ -29,6 +29,8 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey, RSAPriva
 
 BinLike = TypeVar("BinLike", bytes, bytearray, memoryview)
 
+create_bitmask = lambda n: (1 << n) - 1
+
 # globals
 # constants
 XECRYPT_SMC_KEY  = bytes.fromhex("42754E79")
@@ -38,11 +40,11 @@ XECRYPT_SC_SALT  = b"XBOX_ROM_3"
 XECRYPT_SD_SALT  = b"XBOX_ROM_4"
 BUFFER_SIZE      = 4096
 
-UINT8_MASK   = int.from_bytes(b"\xFF", "little")
-UINT16_MASK  = int.from_bytes(b"\xFF" * 2, "little")
-UINT32_MASK  = int.from_bytes(b"\xFF" * 4, "little")
-UINT64_MASK  = int.from_bytes(b"\xFF" * 8, "little")
-UINT128_MASK = int.from_bytes(b"\xFF" * 16, "little")
+UINT8_MASK   = create_bitmask(8)
+UINT16_MASK  = create_bitmask(16)
+UINT32_MASK  = create_bitmask(32)
+UINT64_MASK  = create_bitmask(64)
+UINT128_MASK = create_bitmask(128)
 
 # public key sizes
 XECRYPT_RSAPUB_1024_SIZE = 0x90
@@ -307,10 +309,10 @@ def i2b(i: int, size: int, bswap: bool = False) -> BinLike:
 	return data
 
 def rotl(value: int, shift: int, bits: int = 32) -> int:
-	return ((value << shift) | (value >> (bits - shift))) & ((1 << bits) - 1)
+	return (((value << shift) | (value >> (bits - shift))) & ((1 << bits) - 1)) & create_bitmask(bits)
 
 def rotr(value: int, shift: int, bits: int = 32) -> int:
-	return ((value >> shift) | (value << (bits - shift))) & ((1 << bits) - 1)
+	return (((value >> shift) | (value << (bits - shift))) & ((1 << bits) - 1)) & create_bitmask(bits)
 
 def bswap(data: BinLike, fmt: str) -> BinLike:
 	size = calcsize(fmt)
@@ -339,7 +341,7 @@ def memcmp(b0: BinLike, b1: BinLike, size: int) -> bool:
 	return all([(b0[i] == b1[i]) for i in range(size)])
 
 def XeCryptRandom(cb: int) -> BinLike:
-	return urandom(cb)
+	return randbytes(cb)
 
 # hashing
 def XeCryptMd5(*args: BinLike) -> BinLike:
@@ -596,13 +598,13 @@ def XeCryptChainAndSumMac(cd: BinLike, ab: BinLike, data: BinLike) -> BinLike:
 
 # checksums
 def XeCryptRotSum(data: BinLike) -> BinLike:
-	cqwInp = len(data) // 8
-	if cqwInp != 0:
+	cqw = len(data) // 8
+	if cqw != 0:
 		qw1 = 0
 		qw2 = 0
 		qw3 = 0
 		qw4 = 0
-		for i in range(cqwInp):
+		for i in range(cqw):
 			tqw = int.from_bytes(data[(i * 8):(i * 8) + 8], "big")
 
 			qw2 += tqw
@@ -710,7 +712,7 @@ def XeCryptBnQwBeSigCreate(b_hash: BinLike, salt: BinLike, prv_key: BinLike) -> 
 	if len(salt) > 10:
 		raise Exception("Salt parameter must be 10 bytes or less")
 
-	key = PY_XECRYPT_RSA_KEY(prv_key)
+	key = XeCryptRsaKey(prv_key)
 	if key.cqw != 0x20:  # PXECRYPT_RSAPRV_2048
 		raise Exception("Only PXECRYPT_RSAPRV_2048 can create signatures")
 
@@ -730,7 +732,7 @@ def XeCryptBnQwBeSigVerify(sig: BinLike, b_hash: BinLike, salt: BinLike, pub_key
 	if len(salt) > 10:
 		raise Exception("Salt parameter must be 10 bytes or less")
 
-	key = PY_XECRYPT_RSA_KEY(pub_key)
+	key = XeCryptRsaKey(pub_key)
 
 	if key.cqw != 0x20:  # PXECRYPT_RSAPUB_2048
 		raise Exception("Only PXECRYPT_RSAPUB_2048 can verify signatures")
@@ -797,7 +799,7 @@ def XeCryptBnDwLePkcs1Verify(sig: BinLike, b_hash: BinLike, cb_sig: int) -> bool
 		return memcmp(buf, sig, cb_sig)
 
 def XeKeysPkcs1Create(b_hash: BinLike, prv_key: BinLike) -> Union[BinLike, None]:
-	key = PY_XECRYPT_RSA_KEY(prv_key)
+	key = XeCryptRsaKey(prv_key)
 	if 0 < key.cqw <= 0x40:
 		# buf = bytearray(0x200)
 		#typ = 2
@@ -812,7 +814,7 @@ def XeKeysPkcs1Create(b_hash: BinLike, prv_key: BinLike) -> Union[BinLike, None]
 		return bswap64(buf)
 
 def XeKeysPkcs1Verify(sig: BinLike, b_hash: BinLike, pub_key: BinLike) -> bool:
-	key = PY_XECRYPT_RSA_KEY(pub_key)
+	key = XeCryptRsaKey(pub_key)
 	if 0 < key.cqw <= 0x40:
 		buf = bswap64(sig)
 		buf = key.pub_crypt(buf)
@@ -821,11 +823,11 @@ def XeKeysPkcs1Verify(sig: BinLike, b_hash: BinLike, pub_key: BinLike) -> bool:
 	return False
 
 def XeCryptBnQwNeRsaPrvCrypt(data: BinLike, prv_key: BinLike) -> Union[BinLike, bool]:
-	key = PY_XECRYPT_RSA_KEY(prv_key)
+	key = XeCryptRsaKey(prv_key)
 	return key.prv_crypt(data)
 
 def XeCryptBnQwNeRsaPubCrypt(data: BinLike, pub_key: BinLike) -> Union[BinLike, bool]:
-	key = PY_XECRYPT_RSA_KEY(pub_key)
+	key = XeCryptRsaKey(pub_key)
 	return key.pub_crypt(data)
 
 # Utility
@@ -899,7 +901,7 @@ def XeCryptCpuKeyValid(cpu_key: BinLike) -> bool:
 def XeCryptCpuKeyGen() -> BinLike:
 	key = bytearray(0x10)
 	for dw_unset_count in range(0x35):
-		dw_rand = int.from_bytes(urandom(4), "little") % ((~dw_unset_count) + 0x6A + 1)
+		dw_rand = int.from_bytes(randbytes(4), "little") % ((~dw_unset_count) + 0x6A + 1)
 		bit_pos = 0
 		for bit_pos in range(0x6A):
 			if ((key[(bit_pos >> 3) & 0x1F] >> (bit_pos & 0x7)) & 1) == 0:
@@ -958,7 +960,7 @@ def XeCryptPageEccEncode(data: BinLike) -> BinLike:
 	return bytes(data)
 
 # managed public key "interfaces"
-class PY_XECRYPT_RSA_KEY:
+class XeCryptRsaKey:
 	key_bytes = None
 	rsa_struct = None
 	key_struct = None
@@ -1006,12 +1008,15 @@ class PY_XECRYPT_RSA_KEY:
 	@staticmethod
 	def new(bits: int = 2048, exp: int = 0x10001):
 		(pub_key, prv_key) = XeCryptBnQwNeRsaKeyGen(bits, exp)
-		return PY_XECRYPT_RSA_KEY(prv_key)
+		return XeCryptRsaKey(prv_key)
 
 	@property
 	def public_key(self):
+		if not self.is_private_key:
+			return self
+
 		try:
-			return PY_XECRYPT_RSA_KEY(self.key_bytes[:globals()[f"XECRYPT_RSAPUB_{self.n_size_in_bits}_SIZE"]])
+			return XeCryptRsaKey(self.key_bytes[:globals()[f"XECRYPT_RSAPUB_{self.n_size_in_bits}_SIZE"]])
 		except KeyError as e:
 			raise Exception("Invalid key data specified")
 
@@ -1026,6 +1031,10 @@ class PY_XECRYPT_RSA_KEY:
 	@property
 	def n_size_in_bytes(self) -> int:
 		return self.cqw * 8
+
+	@property
+	def half_n_in_bytes(self) -> int:
+		return self.n_size_in_bytes // 2
 
 	@property
 	def n_size_in_bits(self) -> int:
@@ -1147,13 +1156,20 @@ class PY_XECRYPT_RSA_KEY:
 
 	def sig_create_pkcs1(self, hash: BinLike) -> BinLike:
 		assert self.is_private_key, "Key isn't a private key!"
-		return XeKeysPkcs1Create(hash, self.key_bytes)
+		return XeKeysPkcs1Create(hash, self.to_bytes())
 
 	def sig_verify_pkcs1(self, sig: BinLike, hash: BinLike) -> bool:
 		return XeKeysPkcs1Verify(sig, hash, self.public_key.to_bytes())
 
 # constants
 __all__ = [
+	# masks
+	"UINT8_MASK",
+	"UINT16_MASK",
+	"UINT32_MASK",
+	"UINT64_MASK",
+	"UINT128_MASK",
+	
 	"XECRYPT_1BL_KEY",
 	"XECRYPT_1BL_SALT",
 	"XECRYPT_AES_BLOCK_SIZE",
@@ -1237,7 +1253,7 @@ __all__.extend([
 	"XeCryptDes",
 	"XeCryptDes2",
 	"XeCryptDes3",
-	"PY_XECRYPT_RSA_KEY"
+	"XeCryptRsaKey"
 ])
 
 # utility functions

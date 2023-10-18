@@ -24,7 +24,7 @@ from keystore import load_and_verify_xmacs_pub
 from cryptography.hazmat.primitives.hashes import SHA1
 from cryptography.hazmat.primitives.asymmetric.padding import PKCS1v15, OAEP, MGF1
 
-XMACS_RSA_PUB_2048: PY_XECRYPT_RSA_KEY = None
+XMACS_RSA_PUB_2048: XeCryptRsaKey = None
 
 XEAS_REALM = "xeas.xboxlive.com"
 XETGS_REALM = "xetgs.xboxlive.com"
@@ -110,7 +110,7 @@ def get_xmacs_logon_key(serial_num: bytes, console_cert: bytes, console_prv_key:
 	rand_key = urandom(16)
 	enc_key = reverse(k.encrypt(rand_key, OAEP(MGF1(SHA1()), SHA1(), None)))
 
-	k = PY_XECRYPT_RSA_KEY(console_prv_key).to_cryptography()
+	k = XeCryptRsaKey(console_prv_key).to_cryptography()
 	client_name = compute_client_name(console_id)
 	file_time = get_file_time().to_bytes(8, "big")
 	ts = generate_timestamp()

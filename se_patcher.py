@@ -8,7 +8,7 @@ from XeCrypt import *
 from build_lib import *
 from keystore import load_and_verify_sb_prv
 
-SB_PRV_KEY: PY_XECRYPT_RSA_KEY = None
+SB_PRV_KEY: XeCryptRsaKey = None
 
 def patch_rehash_sign_se(sd_data: bytes | bytearray, se_data: bytes | bytearray, se_patch_data: bytes | bytearray = None) -> tuple[tuple[int, bytearray], tuple[int, bytearray]]:
 	if isinstance(sd_data, bytes):

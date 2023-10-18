@@ -1,16 +1,10 @@
-# VFuse patches for 17489/21256.18
-
-# .include "macros.S"
+#============================================================================
+#   VFuse patches for 17489/21256.18
+#============================================================================
 
 .set nand_fuses_offset, 0x00100000
 .set HvpGetFlashBaseAddress, 0x0000068C
 .set XeCryptCopyQwVec, 0x00000484  # XeCryptCopyQwVec(void* dest, void* src, int iter)
-
-#============================================================================
-#   Patches for Hypervisor 21256.18_17489
-#============================================================================
-#	.globl _start
-#_start:
 
 #============================================================================
 #   disable copying transform key from SoC
@@ -161,11 +155,12 @@
 	bla		XeCryptCopyQwVec
 
 	# remove KV signature check
-	lhz     r3, BldrFlags(0)
+	lhz     r3, BldrFlags(r0)
 	li		r4, 0x20
 	andc	r3, r3, r4
-	sth     r3, BldrFlags(0)
+	sth     r3, BldrFlags(r0)
 
+    mtlr	r8
 	ba      CopyFusesDest
 #--------------------------------------------------
 # FixFuses
@@ -175,7 +170,3 @@
 	subi	r3, r3, 0x60
 	blr
 9:
-#============================================================================
-    # .long 0xFFFFFFFF
-    # .end
-#============================================================================

@@ -206,6 +206,8 @@ def get_bldr_size_in_place(stream: BinaryIO, offset: int) -> int:
 def patch_in_place(stream: BinaryIO, patches: BinLike) -> int:
 	c = 0
 	loc = stream.tell()
+	# stream.seek(0, SEEK_END)
+	# bldr_size = stream.tell()
 	with StreamIO(patches, Endian.BIG) as pio:
 		while True:
 			addr = pio.read_uint32()
@@ -255,7 +257,7 @@ def calc_se_hash_in_place(stream: BinaryIO, offset: int) -> bytes:
 	stream.seek(loc)
 	return h
 
-def sign_bldr_in_place(stream: BinaryIO, offset: int, key: PY_XECRYPT_RSA_KEY) -> None:
+def sign_bldr_in_place(stream: BinaryIO, offset: int, key: XeCryptRsaKey) -> None:
 	loc = stream.tell()
 	size = get_bldr_size_in_place(stream, offset)
 
@@ -293,9 +295,9 @@ def compress_se(data: Union[bytes, bytearray], include_header: bool = True) -> b
 			pack_into(">I", data, 0x28, 0x280000)
 		return data
 
-def sign_sd_4bl(key: Union[PY_XECRYPT_RSA_KEY, bytes, bytearray], salt: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bytearray:
+def sign_sd_4bl(key: Union[XeCryptRsaKey, bytes, bytearray], salt: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bytearray:
 	if type(key) in [bytes, bytearray]:
-		key = PY_XECRYPT_RSA_KEY(key)
+		key = XeCryptRsaKey(key)
 	if type(data) == bytes:
 		data = bytearray(data)
 
@@ -304,9 +306,9 @@ def sign_sd_4bl(key: Union[PY_XECRYPT_RSA_KEY, bytes, bytearray], salt: Union[by
 	data[0x20:0x20 + len(sig)] = sig
 	return data
 
-def verify_sd_4bl(key: Union[PY_XECRYPT_RSA_KEY, bytes, bytearray], salt: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bool:
+def verify_sd_4bl(key: Union[XeCryptRsaKey, bytes, bytearray], salt: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bool:
 	if type(key) in [bytes, bytearray]:
-		key = PY_XECRYPT_RSA_KEY(key)
+		key = XeCryptRsaKey(key)
 
 	sig = data[0x20:0x20 + 256]
 	h = XeCryptRotSumSha(data[:0x10] + data[0x120:])

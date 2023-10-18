@@ -21,7 +21,7 @@ def sign_exp(in_file: str, out_file: str = None, key_file: str = "Keys/HVX_prv.b
 	cpu_key = b""
 
 	# prv_key = read_file(key_file)
-	prv_key = PY_XECRYPT_RSA_KEY(read_file(key_file))
+	prv_key = XeCryptRsaKey(read_file(key_file))
 	payload = read_file(in_file)
 	exp_id = exp_id
 	exp_typ = int(exp_magic)

@@ -11,7 +11,7 @@ from XeCrypt import *
 from build_lib import sign_sd_4bl
 from keystore import load_and_verify_sb_prv
 
-SB_PRV_KEY: PY_XECRYPT_RSA_KEY = None
+SB_PRV_KEY: XeCryptRsaKey = None
 
 def valid_file(parser: ArgumentParser, filename: str) -> Path:
 	if not Path(filename).is_file():

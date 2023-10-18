@@ -13,7 +13,7 @@ from os.path import isfile
 from binascii import crc32
 from argparse import ArgumentParser
 from typing import TypeVar, Optional
-from struct import pack, pack_into, unpack_from
+from struct import pack, unpack_from
 from ctypes import sizeof, create_string_buffer
 
 from XeCrypt import *
@@ -227,10 +227,10 @@ class ShadowbootImage:
 		flash_header.patch_slot_size = 0x10000
 
 		# these aren't required
-		flash_header.smc_offset = 0  # 0x1000
+		flash_header.smc_offset = 0x1000
 		flash_header.smc_length = 0
-		flash_header.kv_offset = 0  # 0x4000
-		flash_header.kv_length = 0  # 0x4000
+		flash_header.kv_offset = 0x4000
+		flash_header.kv_length = 0x4000
 
 		sb_hdr.nonce = new_sb_nonce
 		sc_hdr.nonce = new_sc_nonce
@@ -507,7 +507,7 @@ class ShadowbootImage:
 	def parse_metadata(self) -> None:
 		# SB
 		self.sb_sig = self.sb_data[64:64 + 256]
-		self.sb_pub_key = PY_XECRYPT_RSA_KEY(self.sb_data[616:616 + 272])  # verifies SC and SD
+		self.sb_pub_key = XeCryptRsaKey(self.sb_data[616:616 + 272])  # verifies SC and SD
 		self.sc_nonce = self.sb_data[888:888 + 0x10]
 		self.sc_salt = self.sb_data[904:904 + 0xA]
 		self.sd_salt = self.sb_data[914:914 + 0xA]
@@ -516,7 +516,7 @@ class ShadowbootImage:
 		self.sc_sig = self.sc_data[32:32 + 256]
 		# SD
 		self.sd_sig = self.sd_data[32:32 + 256]
-		self.sd_pub_key = PY_XECRYPT_RSA_KEY(self.sd_data[288:288 + 272])  # verifies SE
+		self.sd_pub_key = XeCryptRsaKey(self.sd_data[288:288 + 272])  # verifies SE
 		self.sf_nonce = self.sd_data[560:560 + 0x10]
 		self.sf_salt = self.sd_data[576:576 + 0xA]
 		self.se_digest = self.sd_data[588:588 + 0x14]

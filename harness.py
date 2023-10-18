@@ -51,7 +51,7 @@ rotsum_digest = bytes.fromhex("0000000000000001F83FB03F944C2298FFFFFFFFFFFFFFFEB
 valid_cpu_key = bytes.fromhex("0F17D09D89EA12B1716E5D134F8266FF")
 invalid_cpu_key = bytes.fromhex("12345678901234567890123456789010")
 
-def sig_create_verify_test(prv_key: PY_XECRYPT_RSA_KEY) -> bool:
+def sig_create_verify_test(prv_key: XeCryptRsaKey) -> bool:
 	sig = prv_key.sig_create(rsa_test_hash, rsa_test_salt)
 	print("        RSA signature created OK")
 	print("        RSA signature encrypted OK")
@@ -64,7 +64,7 @@ def sig_create_verify_test(prv_key: PY_XECRYPT_RSA_KEY) -> bool:
 
 def do_rsa_test() -> bool:
 	rsa_pass = True
-	prv_key = PY_XECRYPT_RSA_KEY(read_file("Data/rsa_test_key.bin"))
+	prv_key = XeCryptRsaKey(read_file("Data/rsa_test_key.bin"))
 
 	print("starting RSA tests...")
 	print("    testing RSA signature creation and verification with static key....")
@@ -83,6 +83,17 @@ def do_rsa_test() -> bool:
 	else:
 		print("        PKCS1 signature verify FAILED")
 		rsa_pass = False
+
+	print("    testing key generation...")
+	(pub_key, prv_key) = XeCryptBnQwNeRsaKeyGen()
+	key = XeCryptRsaKey(prv_key)
+	if key.verify_parameters():
+		print("        Key generation OK")
+	else:
+		print("        Key generation FAILED")
+		rsa_pass = False
+
+	print(f"RSA {'OK' if rsa_pass else 'FAILED!'}")
 
 	return rsa_pass
 
@@ -110,7 +121,7 @@ def do_rc4_test() -> bool:
 		print("FAILED")
 		rc4_pass = False
 
-	print("RC4 %s" % ("OK" if rc4_pass else "FAILED!"))
+	print(f"RC4 {'OK' if rc4_pass else 'FAILED!'}")
 
 	return rc4_pass
 
@@ -159,7 +170,7 @@ def do_aes_test() -> bool:
 		print("FAILED")
 		aes_pass = False
 
-	print("AES %s" % ("OK" if aes_pass else "FAILED!"))
+	print(f"AES {'OK' if aes_pass else 'FAILED!'}")
 
 	return aes_pass
 
@@ -223,7 +234,7 @@ def do_des_test() -> bool:
 		print("FAILED")
 		des_pass = False
 
-	print("DES %s" % ("OK" if des_pass else "FAILED!"))
+	print(f"DES {'OK' if des_pass else 'FAILED!'}")
 
 	return des_pass
 
@@ -281,7 +292,7 @@ def do_sha_test() -> bool:
 		print("FAILED")
 		sha_pass = False
 
-	print("SHA %s" % ("OK" if sha_pass else "FAILED!"))
+	print(f"SHA {'OK' if sha_pass else 'FAILED!'}")
 
 	return sha_pass
 
@@ -319,11 +330,11 @@ def do_misc_test() -> bool:
 		print("FAILED")
 		misc_pass = False
 
-	print("Miscellaneous %s" % ("OK" if misc_pass else "FAILED!"))
+	print(f"Misc. {'OK' if misc_pass else 'FAILED!'}")
 
 	return misc_pass
 
-def main() -> None:
+def main() -> int:
 	global TEST_DATA
 
 	test_pass = True
@@ -369,8 +380,10 @@ def main() -> None:
 	# results
 	if test_pass:
 		print("SUCCESS! All tests passed!")
+		return 0
 	else:
 		print("ERROR! One or more tests failed!")
+		return 1
 
 if __name__ == "__main__":
-	main()
+	exit(main())

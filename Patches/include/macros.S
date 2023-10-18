@@ -6,6 +6,7 @@
 .set lr,            8
 .set ppe_tlb_rpn, 	0x3B4
 .set PIR,           1023
+.set BldrFlags,     6
 
 .set KBASE, 0x80000000
 

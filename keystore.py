@@ -3,7 +3,7 @@
 from pathlib import Path
 from binascii import crc32
 
-from XeCrypt import PY_XECRYPT_RSA_KEY
+from XeCrypt import XeCryptRsaKey
 
 KEY_PATH = Path("Keys")
 
@@ -15,30 +15,30 @@ CKSM_MASTER_PUB = 0xE86E10FD
 CKSM_SB_PRV    = 0x490C9D35
 CKSM_HVX_PRV   = 0xDCC4B906
 
-def load_and_verify_1bl_pub() -> PY_XECRYPT_RSA_KEY:
+def load_and_verify_1bl_pub() -> XeCryptRsaKey:
 	data = (KEY_PATH / "1BL_pub.bin").read_bytes()
 	assert crc32(data) == CKSM_1BL_PUB, "Invalid key checksum!"
-	return PY_XECRYPT_RSA_KEY(data)
+	return XeCryptRsaKey(data)
 
-def load_and_verify_xmacs_pub() -> PY_XECRYPT_RSA_KEY:
+def load_and_verify_xmacs_pub() -> XeCryptRsaKey:
 	data = (KEY_PATH / "XMACS_pub.bin").read_bytes()
 	assert crc32(data) == CKSM_XMACS_PUB, "Invalid key checksum!"
-	return PY_XECRYPT_RSA_KEY(data)
+	return XeCryptRsaKey(data)
 
-def load_and_verify_sb_prv() -> PY_XECRYPT_RSA_KEY:
+def load_and_verify_sb_prv() -> XeCryptRsaKey:
 	data = (KEY_PATH / "SB_prv.bin").read_bytes()
 	assert crc32(data) == CKSM_SB_PRV, "Invalid key checksum!"
-	return PY_XECRYPT_RSA_KEY(data)
+	return XeCryptRsaKey(data)
 
-def load_and_verify_hvx_prv() -> PY_XECRYPT_RSA_KEY:
+def load_and_verify_hvx_prv() -> XeCryptRsaKey:
 	data = (KEY_PATH / "HVX_prv.bin").read_bytes()
 	assert crc32(data) == CKSM_HVX_PRV, "Invalid key checksum!"
-	return PY_XECRYPT_RSA_KEY(data)
+	return XeCryptRsaKey(data)
 
-def load_and_verify_master_pub() -> PY_XECRYPT_RSA_KEY:
+def load_and_verify_master_pub() -> XeCryptRsaKey:
 	data = (KEY_PATH / "Master_pub.bin").read_bytes()
 	assert crc32(data) == CKSM_MASTER_PUB, "Invalid key checksum!"
-	return PY_XECRYPT_RSA_KEY(data)
+	return XeCryptRsaKey(data)
 
 __all__ = [
 	"load_and_verify_1bl_pub",
