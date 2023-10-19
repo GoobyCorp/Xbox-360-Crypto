@@ -76,6 +76,28 @@ def unecc(path: str, block_size: int = 512, spare_size: int = 16) -> bytes:
 			bio.write(data)
 		return bio.getvalue()
 
+def read_or_use_fallback(filename: str, *fallbacks: str | BinLike) -> BinLike | None:
+	def read_file(filename: str) -> BinLike | None:
+		if filename == "":
+			return None
+		p = Path(filename)
+		if not p.is_file():
+			return None
+		return p.read_bytes()
+
+	data = read_file(filename)
+	if data is not None:
+		return data
+
+	for single in fallbacks:
+		if isinstance(single, str):
+			data = read_file(single)
+			if data is not None:
+				return data
+			# continue to next fallback otherwise
+		elif isinstance(single, (bytes, bytearray, memoryview)):
+			return single
+
 class ShadowbootImage:
 	# I/O stream
 	_stream = None
@@ -175,7 +197,7 @@ class ShadowbootImage:
 		return img
 
 	@staticmethod
-	def create(sb_data: BinLike, sc_data: BinLike, sd_data: BinLike, se_data: BinLike, patches: Optional[BinLike] = None, test_kit: Optional[bool] = False, build_version: Optional[int] = BUILD_VER) -> bytes:
+	def create(sb_data: BinLike, sc_data: BinLike, sd_data: BinLike, se_data: BinLike, smc_data: Optional[BinLike] = None, kv_data: Optional[BinLike] = None, patches: Optional[BinLike] = None, test_kit: Optional[bool] = False, build_version: Optional[int] = BUILD_VER) -> bytes:
 		# probably never going to actually implement this since I have building working already
 		img = ShadowbootImage()
 
@@ -219,18 +241,11 @@ class ShadowbootImage:
 		flash_header.build = build_version
 		flash_header.qfe = 0x8000
 		flash_header.flags = 0
-		flash_header.entry = sizeof(FLASH_HEADER)
 
 		flash_header.copyright = bytes(create_string_buffer(b"\xA9 2005-2023 Microsoft Corporation. All rights reserved", 0x40))
 		flash_header.patch_slots = 2
 		flash_header.kv_version = 0x712
 		flash_header.patch_slot_size = 0x10000
-
-		# these aren't required
-		flash_header.smc_offset = 0x1000
-		flash_header.smc_length = 0
-		flash_header.kv_offset = 0x4000
-		flash_header.kv_length = 0x4000
 
 		sb_hdr.nonce = new_sb_nonce
 		sc_hdr.nonce = new_sc_nonce
@@ -240,6 +255,28 @@ class ShadowbootImage:
 		with BytesIO() as img._stream:
 			# write blank NAND header
 			img.write(bytes(sizeof(FLASH_HEADER)))
+
+			if smc_data is not None:
+				smc_data = XeCryptSmcEncrypt(smc_data)
+				img.write(bytes(0x1000 - sizeof(FLASH_HEADER)))
+				img.write(smc_data)
+				flash_header.smc_offset = 0x1000
+				flash_header.smc_length = len(smc_data)
+				flash_header.entry = 0x1000 + flash_header.smc_length
+			else:
+				flash_header.smc_offset = 0x1000
+				flash_header.smc_length = 0
+				flash_header.entry = sizeof(FLASH_HEADER)
+
+			if kv_data is not None:
+				kv_data = XeCryptKeyVaultEncrypt(bytes(0x10), kv_data)
+				flash_header.kv_offset = 0x4000
+				flash_header.kv_length = 0x4000
+				img.write(kv_data)
+				flash_header.entry += 0x4000
+			else:
+				flash_header.kv_offset = 0x4000
+				flash_header.kv_length = 0
 
 			sb_hdr_offs = img.tell()
 			img.write(bytes(sb_hdr))
@@ -656,9 +693,9 @@ def main() -> int:
 			print("Setting up paths...")
 			bd = Path(build_manifest["files"]["base_directory"])
 			base_img_file = Path(build_manifest["files"]["base_image"])
-			# smc_bin_file = bd /  build_manifest["files"]["SMC"]
+			smc_bin_file = bd /  build_manifest["files"]["SMC"]
 			# smc_cfg_file = bd /  build_manifest["files"]["SMC_config"]
-			# kv_file = bd / build_manifest["files"]["KV"]
+			kv_file = bd / build_manifest["files"]["KV"]
 			sb_file = bd / build_manifest["files"]["SB"]
 			sc_file = bd / build_manifest["files"]["SC"]
 			sd_file = bd / build_manifest["files"]["SD"]
@@ -669,9 +706,9 @@ def main() -> int:
 			# sd_code_file = bd / build_manifest["files"]["SD_code"]
 			hvk_patches_file = bd / build_manifest["files"]["HVK_patches"]
 		elif args.build_dir is not None:  # using a build directory vs a manifest
-			# smc_bin_file = args.build_dir / "SMC_dec.bin"
+			smc_bin_file = args.build_dir / "SMC_dec.bin"
 			# smc_cfg_file = args.build_dir / "SMC_config.bin"
-			# kv_file = args.build_dir / "KV_dec.bin"
+			kv_file = args.build_dir / "KV_dec.bin"
 			sb_file = args.build_dir / "sb.bin"
 			sc_file = args.build_dir / "sc.bin"
 			sd_file = args.build_dir / "sd.bin"
@@ -735,10 +772,17 @@ def main() -> int:
 		else:
 			raise Exception("No HV/kernel pair, SE, or fallback image was provided!")
 
-		if hvk_patches_file.is_file():
-			data = ShadowbootImage.create(sb_data, sc_data, sd_data, se_data, hvk_patches_file.read_bytes(), build_manifest["options"]["test_kit"], build_manifest["build"]["version"])
-		else:
-			data = ShadowbootImage.create(sb_data, sc_data, sd_data, se_data, None, build_manifest["options"]["test_kit"], build_manifest["build"]["version"])
+		data = ShadowbootImage.create(
+			sb_data,
+			sc_data,
+			sd_data,
+			se_data,
+			read_or_use_fallback(smc_bin_file, base_img.smc_data) if build_manifest["options"]["use_smc"] else None,
+			read_or_use_fallback(kv_file, base_img.kv_data) if build_manifest["options"]["use_kv"] else None,
+			read_or_use_fallback(hvk_patches_file),
+			build_manifest["options"]["test_kit"],
+			build_manifest["build"]["version"]
+		)
 		args.output.write_bytes(data)
 
 		print(f"Final image location: \"{str(args.output.absolute())}\"")
