@@ -76,28 +76,6 @@ def unecc(path: str, block_size: int = 512, spare_size: int = 16) -> bytes:
 			bio.write(data)
 		return bio.getvalue()
 
-def read_or_use_fallback(filename: str, *fallbacks: str | BinLike) -> BinLike | None:
-	def read_file(filename: str) -> BinLike | None:
-		if filename == "":
-			return None
-		p = Path(filename)
-		if not p.is_file():
-			return None
-		return p.read_bytes()
-
-	data = read_file(filename)
-	if data is not None:
-		return data
-
-	for single in fallbacks:
-		if isinstance(single, str):
-			data = read_file(single)
-			if data is not None:
-				return data
-			# continue to next fallback otherwise
-		elif isinstance(single, (bytes, bytearray, memoryview)):
-			return single
-
 class ShadowbootImage:
 	# I/O stream
 	_stream = None
@@ -197,7 +175,7 @@ class ShadowbootImage:
 		return img
 
 	@staticmethod
-	def create(sb_data: BinLike, sc_data: BinLike, sd_data: BinLike, se_data: BinLike, smc_data: Optional[BinLike] = None, kv_data: Optional[BinLike] = None, patches: Optional[BinLike] = None, test_kit: Optional[bool] = False, build_version: Optional[int] = BUILD_VER) -> bytes:
+	def create(sb_data: BinLike, sc_data: BinLike, sd_data: BinLike, se_data: BinLike, smc_data: Optional[BinLike] = None, kv_data: Optional[tuple[BinLike, BinLike]] = None, patches: Optional[BinLike] = None, test_kit: Optional[bool] = False, build_version: Optional[int] = BUILD_VER) -> bytes:
 		# probably never going to actually implement this since I have building working already
 		img = ShadowbootImage()
 
@@ -269,7 +247,8 @@ class ShadowbootImage:
 				flash_header.entry = sizeof(FLASH_HEADER)
 
 			if kv_data is not None:
-				kv_data = XeCryptKeyVaultEncrypt(bytes(0x10), kv_data)
+				(cpu_key, kv_data) = kv_data
+				kv_data = XeCryptKeyVaultEncrypt(cpu_key, kv_data)
 				flash_header.kv_offset = 0x4000
 				flash_header.kv_length = 0x4000
 				img.write(kv_data)
@@ -731,33 +710,6 @@ def main() -> int:
 		if base_img_available:
 			base_img = ShadowbootImage.parse(base_img_file.read_bytes(), not build_manifest["options"]["base_image_checks_disabled"])
 
-		if sb_file.is_file():
-			print("Reading SB from file...")
-			sb_data = sb_file.read_bytes()
-		elif base_img_available:
-			print("Reading SB from base image...")
-			sb_data = base_img.sb_data
-		else:
-			raise Exception("No SB binary or fallback image was provided!")
-
-		if sc_file.is_file():
-			print("Reading SC from file...")
-			sc_data = sc_file.read_bytes()
-		elif base_img_available:
-			print("Reading SC from base image...")
-			sc_data = base_img.sc_data
-		else:
-			raise Exception("No SC binary or fallback image was provided!")
-
-		if sd_file.is_file():
-			print("Reading SD from file...")
-			sd_data = sd_file.read_bytes()
-		elif base_img_available:
-			print("Reading SD from base image...")
-			sd_data = base_img.sd_data
-		else:
-			raise Exception("No SD binary or fallback image was provided!")
-
 		if kernel_file.is_file() and hypervisor_file.is_file():
 			print("Reading raw HV/kernel...")
 			kernel = kernel_file.read_bytes()
@@ -773,13 +725,13 @@ def main() -> int:
 			raise Exception("No HV/kernel pair, SE, or fallback image was provided!")
 
 		data = ShadowbootImage.create(
-			sb_data,
-			sc_data,
-			sd_data,
+			try_read_sources(sb_file, base_img.sb_data),
+			try_read_sources(sc_file, base_img.sc_data),
+			try_read_sources(sd_file, base_img.sd_data),
 			se_data,
-			read_or_use_fallback(smc_bin_file, base_img.smc_data) if build_manifest["options"]["use_smc"] else None,
-			read_or_use_fallback(kv_file, base_img.kv_data) if build_manifest["options"]["use_kv"] else None,
-			read_or_use_fallback(hvk_patches_file),
+			try_read_sources(smc_bin_file, base_img.smc_data) if build_manifest["options"]["use_smc"] else None,
+			(bytes(0x10), try_read_sources(kv_file, base_img.kv_data)) if build_manifest["options"]["use_kv"] else None,
+			try_read_sources(hvk_patches_file),
 			build_manifest["options"]["test_kit"],
 			build_manifest["build"]["version"]
 		)

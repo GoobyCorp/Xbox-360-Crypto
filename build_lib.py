@@ -154,6 +154,37 @@ class BLHeader:
 		self.size = None
 		self.nonce = None
 
+def read_file(filename: str) -> BinLike | None:
+	if filename == "":
+		return None
+	p = Path(filename)
+	if not p.is_file():
+		return None
+	return p.read_bytes()
+
+def try_read_sources(*sources: Union[str, Path, BinLike]) -> BinLike | None:
+	"""
+	Read from sources until one is found and if not then return none
+	:param sources: str, Path, or binary sources, string will read from a path, binary returns itself
+	:return: source data otherwise none
+	"""
+	for source in sources:
+		# make Path type into str if valid
+		if isinstance(source, Path):
+			if not source.is_file():
+				continue
+			source = str(source)
+
+		if isinstance(source, str):
+			if source.strip() == "":
+				continue
+			data = read_file(source)
+			if data is not None:
+				return data
+		elif isinstance(source, (bytes, bytearray, memoryview)):
+			if source != b"":
+				return source
+
 def assemble_patch(asm_filename: str, bin_filename: str, *defines) -> None:
 	args = [str(Path(BIN_DIR) / "xenon-as.exe"), "-be", "-many", "-mregnames", asm_filename, "-o", "temp.elf"]
 	args.extend(["-I", str(Path(asm_filename).parent.absolute())])
@@ -387,6 +418,8 @@ __all__ = [
 	"HV_HEADER",
 
 	# functions
+	"read_file",
+	"try_read_sources",
 	"assemble_patch",
 	"assemble_devkit_patch",
 	"assemble_retail_patch",
