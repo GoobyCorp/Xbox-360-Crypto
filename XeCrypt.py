@@ -272,20 +272,6 @@ class XECRYPT_KEYVAULT(BigEndianStructure):
 	]
 
 # utilities
-def read_file(filename: str, text: bool = False) -> Union[BinLike, str]:
-	p = Path(filename)
-	if text:
-		return p.read_text()
-	else:
-		return p.read_bytes()
-
-def write_file(filename: str, data: Union[str, BinLike]) -> None:
-	p = Path(filename)
-	if type(data) == str:
-		p.write_text(data)
-	else:
-		p.write_bytes(data)
-
 def reverse(b: BinLike) -> BinLike:
 	return bytes(reversed(b))
 
@@ -1258,8 +1244,6 @@ __all__.extend([
 
 # utility functions
 __all__.extend([
-	"read_file",
-	"write_file",
 	"reverse",
 	"b2i",
 	"i2b",

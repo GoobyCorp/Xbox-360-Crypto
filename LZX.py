@@ -17,27 +17,54 @@ if calcsize("P") * 8 != 64:
 	print("This only works on 64-bit operating systems!")
 	exit(0)
 
+# constants
 LZX_WINDOW_SIZE = 128 * 1024  # 0x20000
 LZX_CHUNK_SIZE = 32 * 1024  # 0x8000
 MAX_GROWTH = 0x1800
+NUM_REPEATED_OFFSETS = 3
+MAIN_TREE_TABLE_BITS = 10
+SECONDARY_LEN_TREE_TABLE_BITS = 8
+MAX_MAIN_TREE_ELEMENTS = 256 + (8 * 291)
+MIN_MATCH = 2
+MAX_MATCH = MIN_MATCH + 255
+NUM_PRIMARY_LENGTHS = 7
+NUM_SECONDARY_LENGTHS = (MAX_MATCH - MIN_MATCH + 1) - NUM_PRIMARY_LENGTHS
+ALIGNED_TABLE_BITS = 7
+ALIGNED_NUM_ELEMENTS = 8
 
+# C types
 NULL = 0
 NULLPTR = c_void_p(NULL)
+BOOL = c_bool
+BYTE = c_uint8
+CHAR = c_int8
+SHORT = c_int16
 LONG = c_int32
 USHORT = c_uint16
 ULONG = c_uint32
-
-PBYTE = POINTER(c_ubyte)
-PLONG = POINTER(LONG)
-PULONG = POINTER(ULONG)
 SIGNATURE = c_uint32
 MHANDLE = c_longlong
 LDI_CONTEXT_HANDLE = MHANDLE
 LCI_CONTEXT_HANDLE = MHANDLE
+
+# C pointers
+PVOID = c_void_p
+PBYTE = POINTER(c_ubyte)
+PLONG = POINTER(LONG)
+PUSHORT = POINTER(USHORT)
+PULONG = POINTER(ULONG)
 PLDI_CONTEXT_HANDLE = POINTER(LDI_CONTEXT_HANDLE)
 PLCI_CONTEXT_HANDLE = POINTER(LCI_CONTEXT_HANDLE)
 
-FNCALLBACK = CFUNCTYPE(LONG, c_void_p, PBYTE, LONG, LONG)
+# C function prototypes
+FNALLOC = CFUNCTYPE(PVOID, ULONG)
+FNFREE = CFUNCTYPE(None, PVOID)
+FNCALLBACK = CFUNCTYPE(LONG, PVOID, PBYTE, LONG, LONG)
+
+# C function pointers
+PFNALLOC = POINTER(FNALLOC)
+PFNFREE = POINTER(FNFREE)
+PFNCALLBACK = POINTER(FNCALLBACK)
 
 class LZXCOMPRESS(LittleEndianStructure):
 	_pack_ = 2
@@ -51,6 +78,128 @@ class LZXDECOMPRESS(LittleEndianStructure):
 	_fields_ = [
 		("WindowSize", LONG),
 		("fCPUtype", LONG)
+	]
+
+class decision_node(LittleEndianStructure):
+	_fields_ = [
+		("link", ULONG),
+		("path", ULONG),
+		("repeated_offset", ULONG * NUM_REPEATED_OFFSETS),
+		("numbits", ULONG)
+	]
+
+class t_encoder_context(LittleEndianStructure):
+	_fields_ = [
+		("enc_MemWindow", PBYTE),
+		("enc_window_size", ULONG),
+		("enc_tree_root", PULONG),
+		("enc_Left", PULONG),
+		("enc_Right", PULONG),
+		("enc_bitbuf", ULONG),
+		("enc_bitcount", CHAR),
+		("enc_output_overflow", BOOL),
+		("pad1", CHAR * 2),
+		("enc_literals", ULONG),
+		("enc_distances", ULONG),
+		("enc_DistData", PULONG),
+		("enc_LitData", PBYTE),
+		("enc_ItemType", PBYTE),
+		("enc_repeated_offset_at_literal_zero", ULONG * NUM_REPEATED_OFFSETS),
+		("enc_last_matchpos_offset", ULONG * NUM_REPEATED_OFFSETS),
+		("enc_matchpos_table", ULONG * (MAX_MATCH + 1)),
+		("enc_BufPos", ULONG),
+		("enc_slot_table", USHORT * 1024),
+		("enc_output_buffer_start", PBYTE),
+		("enc_output_buffer_curpos", PBYTE),
+		("enc_output_buffer_end", PBYTE),
+		("enc_input_running_total", ULONG),
+		("enc_bufpos_last_output_block", ULONG),
+		("enc_num_position_slots", ULONG),
+		("enc_file_size_for_translation", ULONG),
+		("enc_num_block_splits", BYTE),
+		("enc_ones", BYTE * 256),
+		("enc_first_block", BYTE),
+		("enc_need_to_recalc_stats", BOOL),
+		("enc_first_time_this_group", BOOL),
+		("enc_encoder_second_partition_size", ULONG),
+		("enc_earliest_window_data_remaining", ULONG),
+		("enc_bufpos_at_last_block", ULONG),
+		("enc_input_ptr", PBYTE),
+		("enc_input_left", LONG),
+		("enc_instr_pos", ULONG),
+		("enc_tree_freq", PUSHORT),
+		("enc_tree_sortptr", PUSHORT),
+		("enc_len", PBYTE),
+		("enc_tree_heap", SHORT * (MAX_MAIN_TREE_ELEMENTS + 2)),
+		("enc_tree_leftright", USHORT * (2 * (2 * MAX_MAIN_TREE_ELEMENTS - 1))),
+		("enc_tree_len_cnt", USHORT * 17),
+		("enc_tree_n", LONG),
+		("enc_tree_heapsize", SHORT),
+		("enc_depth", CHAR),
+		("enc_next_tree_create", ULONG),
+		("enc_last_literals", ULONG),
+		("enc_last_distances", ULONG),
+		("enc_decision_node", POINTER(decision_node)),
+		("enc_main_tree_len", BYTE * (MAX_MAIN_TREE_ELEMENTS + 1)),
+		("enc_secondary_tree_len", BYTE * (NUM_SECONDARY_LENGTHS + 1)),
+		("enc_main_tree_freq", USHORT * (MAX_MAIN_TREE_ELEMENTS * 2)),
+		("enc_main_tree_code", USHORT * MAX_MAIN_TREE_ELEMENTS),
+		("enc_main_tree_prev_len", BYTE * (MAX_MAIN_TREE_ELEMENTS + 1)),
+		("enc_secondary_tree_freq", USHORT * (NUM_SECONDARY_LENGTHS * 2)),
+		("enc_secondary_tree_code", USHORT * NUM_SECONDARY_LENGTHS),
+		("enc_secondary_tree_prev_len", BYTE * (NUM_SECONDARY_LENGTHS + 1)),
+		("enc_aligned_tree_freq", USHORT * (ALIGNED_NUM_ELEMENTS * 2)),
+		("enc_aligned_tree_code", USHORT * ALIGNED_NUM_ELEMENTS),
+		("enc_aligned_tree_len", BYTE * ALIGNED_NUM_ELEMENTS),
+		("enc_aligned_tree_prev_len", BYTE * ALIGNED_NUM_ELEMENTS),
+		("enc_RealMemWindow", PBYTE),
+		("enc_RealLeft", PULONG),
+		("enc_RealRight", PULONG),
+		("enc_num_cfdata_frames", ULONG),
+		("enc_fci_data", PVOID),
+		("enc_malloc", PFNALLOC),
+		("enc_free", PFNFREE),
+		("enc_inserted_dict_size", ULONG),
+		("enc_last_bsearch_bufpos", ULONG),
+		("enc_output_callback_function", PFNCALLBACK)
+	]
+
+class t_decoder_context(LittleEndianStructure):
+	_fields_ = [
+		("dec_mem_window", PBYTE),
+		("dec_window_size", ULONG),
+		("dec_window_mask", ULONG),
+		("dec_last_matchpos_offset", ULONG * NUM_REPEATED_OFFSETS),
+		("dec_main_tree_table", SHORT * (1 << MAIN_TREE_TABLE_BITS)),
+		("dec_secondary_length_tree_table", SHORT * (1 << SECONDARY_LEN_TREE_TABLE_BITS)),
+		("dec_main_tree_len", BYTE * MAX_MAIN_TREE_ELEMENTS),
+		("dec_secondary_length_tree_len", BYTE * NUM_SECONDARY_LENGTHS),
+		("pad1", BYTE * 3),
+		("dec_aligned_table", CHAR * (1 << ALIGNED_TABLE_BITS)),
+		("dec_aligned_len", BYTE * ALIGNED_NUM_ELEMENTS),
+		("dec_main_tree_left_right", SHORT * (MAX_MAIN_TREE_ELEMENTS * 4)),
+		("dec_secondary_length_tree_left_right", SHORT * (NUM_SECONDARY_LENGTHS * 4)),
+		("dec_input_curpos", PBYTE),
+		("dec_end_input_pos", PBYTE),
+		("dec_output_buffer", PBYTE),
+		("dec_position_at_start", LONG),
+		("dec_main_tree_prev_len", BYTE * MAX_MAIN_TREE_ELEMENTS),
+		("dec_secondary_length_tree_prev_len", BYTE * NUM_SECONDARY_LENGTHS),
+		("dec_bitbuf", ULONG),
+		("dec_bitcount", CHAR),
+		("dec_num_position_slots", ULONG),
+		("dec_first_time_this_group", BOOL),
+		("dec_error_condition", BOOL),
+		("dec_bufpos", LONG),
+		("dec_current_file_size", ULONG),
+		("dec_instr_pos", ULONG),
+		("dec_num_cfdata_frames", ULONG),
+		("dec_original_block_size", LONG),
+		("dec_block_size", LONG),
+		("dec_block_type", LONG),  # lzx_block_type
+		("dec_decoder_state", LONG),  # decoder_state
+		("dec_malloc", PFNALLOC),
+		("dec_free", PFNFREE)
 	]
 
 class LZXBOX_BLOCK(BigEndianStructure):
@@ -75,29 +224,97 @@ class LZXCompression:
 
 		self.dll = CDLL(self.compression_library_path)
 
-		self.dll.LCICreateCompression.argtypes = [PULONG, c_void_p, PULONG, PLCI_CONTEXT_HANDLE, FNCALLBACK, c_void_p]
+		# LCICreateCompression(UINT* pcbDataBlockMax, void* pvConfiguration, UINT* pcbDstBufferMin, LCI_CONTEXT_HANDLE * pmchHandle,
+		# 	  int (*pfnlzx_output_callback)(
+		#         void* pfol,
+		#         unsigned char* compressed_data,
+		#         LONG compressed_size,
+		#         LONG uncompressed_size
+		#     ),
+		#     void* fci_data);
+		self.dll.LCICreateCompression.argtypes = [PULONG, PVOID, PULONG, PLCI_CONTEXT_HANDLE, FNCALLBACK, PVOID]
 		self.dll.LCICreateCompression.restype = LONG
 
-		self.dll.LCICompress.argtypes = [LCI_CONTEXT_HANDLE, c_void_p, LONG, c_void_p, LONG, PULONG]
+		# int LCICompress(LCI_CONTEXT_HANDLE hmc, void* pbSrc, UINT cbSrc, void* pbDst, UINT cbDst, ULONG* pcbResult);
+		self.dll.LCICompress.argtypes = [LCI_CONTEXT_HANDLE, PVOID, LONG, PVOID, LONG, PULONG]
 		self.dll.LCICompress.restype = LONG
 
+		# int LCIFlushCompressorOutput(LCI_CONTEXT_HANDLE hmc);
 		self.dll.LCIFlushCompressorOutput.argtypes = [LCI_CONTEXT_HANDLE]
 		self.dll.LCIFlushCompressorOutput.restype = LONG
 
+		# int LCIResetCompression(LCI_CONTEXT_HANDLE hmc);
 		self.dll.LCIResetCompression.argtypes = [LCI_CONTEXT_HANDLE]
 		self.dll.LCIResetCompression.restype = LONG
 
+		# int LCIDestroyCompression(LCI_CONTEXT_HANDLE hmc);
 		self.dll.LCIDestroyCompression.argtypes = [LCI_CONTEXT_HANDLE]
 		self.dll.LCIDestroyCompression.restype = LONG
 
+		# int LCISetTranslationSize(LCI_CONTEXT_HANDLE hmc, ULONG size);
 		self.dll.LCISetTranslationSize.argtypes = [LCI_CONTEXT_HANDLE, LONG]
 		self.dll.LCISetTranslationSize.restype = LONG
 
+		# unsigned char* LCIGetInputData(LCI_CONTEXT_HANDLE hmc, ULONG *input_position, ULONG *bytes_available);
 		self.dll.LCIGetInputData.argtypes = [LCI_CONTEXT_HANDLE, PULONG, PULONG]
 		self.dll.LCIGetInputData.restype = PBYTE
 
+		# int LCISetWindowData(LCI_CONTEXT_HANDLE hmd, BYTE* pbWindowData, ULONG pcbWindowData);
 		self.dll.LCISetWindowData.argtypes = [LCI_CONTEXT_HANDLE, PBYTE, ULONG]
 		self.dll.LCISetWindowData.restype = LONG
+
+		# bool LZX_EncodeInit(
+		# 	  t_encoder_context* enc_context,
+		#     LONG compression_window_size,
+		#     LONG second_partition_size,
+		#     int (* pfnlzx_output_callback)(
+		#         void* pfol,
+		#         unsigned char* compressed_data,
+		#         LONG compressed_size,
+		#         LONG uncompressed_size
+		#     ),
+		#     void* fci_data);
+		self.dll.LZX_EncodeInit.argtypes = [POINTER(t_encoder_context), LONG, LONG, FNCALLBACK, PVOID]
+		self.dll.LZX_EncodeInit.restype = BOOL
+
+		# void LZX_EncodeNewGroup(t_encoder_context *context);
+		self.dll.LZX_EncodeNewGroup.argtypes = [POINTER(t_encoder_context)]
+		self.dll.LZX_EncodeNewGroup.restype = None
+
+		# LONG LZX_Encode(
+		#     t_encoder_context * context,
+		#     byte* input_data,
+		#     LONG input_size,
+		#     LONG* bytes_compressed,
+		#     LONG file_size_for_translation);
+		self.dll.LZX_Encode.argtypes = [POINTER(t_encoder_context), PBYTE, LONG, PLONG, LONG]
+		self.dll.LZX_Encode.restype = LONG
+
+		# bool LZX_EncodeFlush(t_encoder_context *context);
+		self.dll.LZX_EncodeFlush.argtypes = [POINTER(t_encoder_context)]
+		self.dll.LZX_EncodeFlush.restype = BOOL
+
+		# bool LZX_EncodeResetState(t_encoder_context *context);
+		self.dll.LZX_EncodeResetState.argtypes = [POINTER(t_encoder_context)]
+		self.dll.LZX_EncodeResetState.restype = BOOL
+
+		# unsigned char* LZX_GetInputData(
+		#     t_encoder_context *context,
+		#     ULONG *input_position,
+		#     ULONG *bytes_available);
+		self.dll.LZX_GetInputData.argtypes = [POINTER(t_encoder_context), PULONG, PULONG]
+		self.dll.LZX_GetInputData.restype = PBYTE
+
+		# bool LZX_EncodeInsertDictionary(
+		#     t_encoder_context* context,
+		#     byte* input_data,
+		#     ULONG input_size);
+		self.dll.LZX_EncodeInsertDictionary.argtypes = [POINTER(t_encoder_context), PBYTE, ULONG]
+		self.dll.LZX_EncodeInsertDictionary.restype = BOOL
+
+		# void LZX_EncodeFree(t_encoder_context* context);
+		self.dll.LZX_EncodeFree.argtypes = [POINTER(t_encoder_context)]
+		self.dll.LZX_EncodeFree.restype = None
 
 		self.create()
 
@@ -207,23 +424,49 @@ class LZXDecompression:
 
 		self.dll = CDLL(self.decompression_library_path)
 
-		self.dll.LDICreateDecompression.argtypes = [PULONG, c_void_p, PULONG, PLDI_CONTEXT_HANDLE]
+		# int LDICreateDecompression(UINT* pcbDataBlockMax, void* pvConfiguration, UINT* pcbSrcBufferMin, LDI_CONTEXT_HANDLE* pmdhHandle);
+		self.dll.LDICreateDecompression.argtypes = [PULONG, PVOID, PULONG, PLDI_CONTEXT_HANDLE]
 		self.dll.LDICreateDecompression.restype = LONG
 
-		self.dll.LDIDecompress.argtypes = [LDI_CONTEXT_HANDLE, c_void_p, LONG, c_void_p, PULONG]
+		# int LDIDecompress(LDI_CONTEXT_HANDLE hmd, void* pbSrc, UINT cbSrc, void* pbDst, UINT* pcbResult);
+		self.dll.LDIDecompress.argtypes = [LDI_CONTEXT_HANDLE, PVOID, LONG, PVOID, PULONG]
 		self.dll.LDIDecompress.restype = LONG
 
+		# int LDIResetDecompression(LDI_CONTEXT_HANDLE hmd);
 		self.dll.LDIResetDecompression.argtypes = [LDI_CONTEXT_HANDLE]
 		self.dll.LDIResetDecompression.restype = LONG
 
+		# int LDIDestroyDecompression(LDI_CONTEXT_HANDLE hmd);
 		self.dll.LDIDestroyDecompression.argtypes = [LDI_CONTEXT_HANDLE]
 		self.dll.LDIDestroyDecompression.restype = LONG
 
+		# int LDIGetWindow(LDI_CONTEXT_HANDLE hmd, BYTE** ppWindow, LONG* pFileOffset, LONG* pWindowOffset, LONG* pcbBytesAvail);
 		self.dll.LDIGetWindow.argtypes = [LDI_CONTEXT_HANDLE, POINTER(PBYTE), PLONG, PLONG, PLONG]
 		self.dll.LDIGetWindow.restype = LONG
 
+		# int LDISetWindowData(LDI_CONTEXT_HANDLE hmd, BYTE* pbWindowData, ULONG pcbWindowData);
 		self.dll.LDISetWindowData.argtypes = [LDI_CONTEXT_HANDLE, PBYTE, ULONG]
 		self.dll.LDISetWindowData.restype = LONG
+
+		# bool LZX_DecodeInit(t_decoder_context *context, LONG compression_window_size);
+		self.dll.LZX_DecodeInit.argtypes = [POINTER(t_decoder_context), LONG]
+		self.dll.LZX_DecodeInit.restype = BOOL
+
+		# void LZX_DecodeNewGroup(t_decoder_context *context);
+		self.dll.LZX_DecodeNewGroup.argtypes = [POINTER(t_decoder_context)]
+		self.dll.LZX_DecodeNewGroup.restype = None
+
+		# int LZX_Decode(t_decoder_context *context, int bytes_to_decode, byte* compressed_input_buffer, int compressed_input_size, byte* uncompressed_output_buffer, int uncompressed_output_size, int* bytes_decoded);
+		self.dll.LZX_Decode.argtypes = [POINTER(t_decoder_context), LONG, PBYTE, LONG, PBYTE, LONG, PLONG]
+		self.dll.LZX_Decode.restype = LONG
+
+		# bool LZX_DecodeInsertDictionary(t_decoder_context *context, const byte* data, ULONG data_size);
+		self.dll.LZX_DecodeInsertDictionary.argtypes = [POINTER(t_decoder_context), PBYTE, ULONG]
+		self.dll.LZX_DecodeInsertDictionary.restype = BOOL
+
+		# void LZX_DecodeFree(t_decoder_context* context);
+		self.dll.LZX_DecodeFree.argtypes = [POINTER(t_decoder_context)]
+		self.dll.LZX_DecodeFree.restype = None
 
 		self.create()
 

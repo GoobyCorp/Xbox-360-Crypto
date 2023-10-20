@@ -154,13 +154,29 @@ class BLHeader:
 		self.size = None
 		self.nonce = None
 
-def read_file(filename: str) -> BinLike | None:
+def read_file_or_none(filename: str, text: bool = False) -> Union[BinLike, str, None]:
 	if filename == "":
 		return None
 	p = Path(filename)
 	if not p.is_file():
 		return None
+	if text:
+		return p.read_text()
 	return p.read_bytes()
+
+def read_file(filename: str, text: bool = False) -> Union[BinLike, str]:
+	p = Path(filename)
+	if text:
+		return p.read_text()
+	else:
+		return p.read_bytes()
+
+def write_file(filename: str, data: Union[str, BinLike]) -> None:
+	p = Path(filename)
+	if type(data) == str:
+		p.write_text(data)
+	else:
+		p.write_bytes(data)
 
 def try_read_sources(*sources: Union[str, Path, BinLike]) -> BinLike | None:
 	"""
@@ -178,7 +194,7 @@ def try_read_sources(*sources: Union[str, Path, BinLike]) -> BinLike | None:
 		if isinstance(source, str):
 			if source.strip() == "":
 				continue
-			data = read_file(source)
+			data = read_file_or_none(source)
 			if data is not None:
 				return data
 		elif isinstance(source, (bytes, bytearray, memoryview)):
@@ -192,6 +208,7 @@ def assemble_patch(asm_filename: str, bin_filename: str, *defines) -> None:
 	[args.extend(["--defsym", f"{x}=1"]) for x in defines]
 	result = subprocess.run(args, shell=True, stdout=subprocess.DEVNULL)
 	assert result.returncode == 0, f"Patch assembly failed with error code {result.returncode}"
+	# print(result.stdout.decode("UTF8"))
 
 	args = [str(Path(BIN_DIR) / "xenon-objcopy.exe"), "temp.elf", "-O", "binary", bin_filename]
 	result = subprocess.run(args, shell=True, stdout=subprocess.DEVNULL)
@@ -418,7 +435,9 @@ __all__ = [
 	"HV_HEADER",
 
 	# functions
+	"read_file_or_none",
 	"read_file",
+	"write_file",
 	"try_read_sources",
 	"assemble_patch",
 	"assemble_devkit_patch",
