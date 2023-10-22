@@ -230,14 +230,18 @@ class ShadowbootImage:
 		sd_hdr.nonce = new_sd_nonce
 		se_hdr.nonce = new_se_nonce
 
-		with BytesIO() as img._stream:
+		with StreamIO(endian=Endian.BIG) as img:
 			# write blank NAND header
+			img.set_label("flash_hdr_offs")
 			img.write(bytes(sizeof(FLASH_HEADER)))
+			img.set_label("flash_hdr_end")
 
 			if smc_data is not None:
 				smc_data = XeCryptSmcEncrypt(smc_data)
 				img.write(bytes(0x1000 - sizeof(FLASH_HEADER)))
+				img.set_label("smc_offs")
 				img.write(smc_data)
+				img.set_label("smc_end")
 				flash_header.smc_offset = 0x1000
 				flash_header.smc_length = len(smc_data)
 				flash_header.entry = 0x1000 + flash_header.smc_length
@@ -251,32 +255,38 @@ class ShadowbootImage:
 				kv_data = XeCryptKeyVaultEncrypt(cpu_key, kv_data)
 				flash_header.kv_offset = 0x4000
 				flash_header.kv_length = 0x4000
+				img.set_label("kv_offs")
 				img.write(kv_data)
+				img.set_label("kv_end")
 				flash_header.entry += 0x4000
 			else:
 				flash_header.kv_offset = 0x4000
 				flash_header.kv_length = 0
 
-			sb_hdr_offs = img.tell()
+			img.set_label("sb_hdr_offs")
 			img.write(bytes(sb_hdr))
-			sb_data_offs = img.tell()
+			img.set_label("sb_data_offs")
 			img.write(sb_data)
+			img.set_label("sb_data_end")
 
 			if test_kit:
-				img.seek(sb_hdr_offs + 0x1348)
+				img.goto_label("sb_hdr_offs", 0x1348)
 				assert img.read(4) == bytes.fromhex("419A0014"), "Original bytes mismatch!"
 				img.seek(-4, SEEK_CUR)
 				img.write(bytes.fromhex("48000194"))
+				img.goto_label("sb_data_end")
 
-			sc_hdr_offs = img.tell()
+			img.set_label("sc_hdr_offs")
 			img.write(bytes(sc_hdr))
-			sc_data_offs = img.tell()
+			img.set_label("sc_data_offs")
 			img.write(sc_data)
+			img.set_label("sc_data_end")
 
-			sd_hdr_offs = img.tell()
+			img.set_label("sd_hdr_offs")
 			img.write(bytes(sd_hdr))
-			sd_data_offs = img.tell()
+			img.set_label("sd_data_offs")
 			img.write(sd_data)
+			img.set_label("sd_data_end")
 
 			# apply patches to SE (HV/kernel)
 			if patches is not None:
@@ -286,34 +296,35 @@ class ShadowbootImage:
 
 			se_data = compress_se(se_data, False)
 			se_hdr.size = len(se_data) + 0x30
-			se_hdr_offs = img.tell()
+			img.set_label("se_hdr_offs")
 			img.write(bytes(se_hdr))
-			se_data_offs = img.tell()
+			img.set_label("se_data_offs")
 			img.write(pack(">8x I 4x", 0x280000))
 			img.write(se_data)
 			img.write(bytes(se_hdr.padded_size - se_hdr.size))
+			img.set_label("se_data_end")
 
-			se_hash = calc_se_hash_in_place(img._stream, se_hdr_offs)
+			se_hash = calc_se_hash_in_place(img, img.get_label("se_hdr_offs"))
 
-			img.seek(sd_hdr_offs + 0x24C)
+			img.goto_label("sd_hdr_offs", 0x24C)
 			img.write(se_hash)
 			img.seek(0, SEEK_END)
 
-			sign_bldr_in_place(img._stream, sd_hdr_offs, SB_PRV_KEY)
+			sign_bldr_in_place(img, img.get_label("sd_hdr_offs"), SB_PRV_KEY)
 
-			encrypt_bldr_in_place(new_sb_key, img._stream, sb_hdr_offs)
-			encrypt_bldr_in_place(new_sc_key, img._stream, sc_hdr_offs)
-			encrypt_bldr_in_place(new_sd_key, img._stream, sd_hdr_offs)
-			encrypt_bldr_in_place(new_se_key, img._stream, se_hdr_offs)
+			encrypt_bldr_in_place(new_sb_key, img, img.get_label("sb_hdr_offs"))
+			encrypt_bldr_in_place(new_sc_key, img, img.get_label("sc_hdr_offs"))
+			encrypt_bldr_in_place(new_sd_key, img, img.get_label("sd_hdr_offs"))
+			encrypt_bldr_in_place(new_se_key, img, img.get_label("se_hdr_offs"))
 
-			size = img.tell()
+			img.set_label("size")
 
-			img.write(bytes(calc_pad_size(size, 0x1000)))
+			img.write(bytes(calc_pad_size(img.get_label("size"), 0x1000)))
 
-			size = img.tell()
+			img.set_label("size")
 
 			# point to right after the shadowboot image (idk if this matters)
-			flash_header.sys_upd_addr = size
+			flash_header.sys_upd_addr = img.get_label("size")
 
 			img.seek(0)
 			img.write(bytes(flash_header))

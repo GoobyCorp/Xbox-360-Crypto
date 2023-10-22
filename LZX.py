@@ -17,7 +17,20 @@ if calcsize("P") * 8 != 64:
 	print("This only works on 64-bit operating systems!")
 	exit(0)
 
-# constants
+os = system()
+if os == "Windows":
+	COMPRESSION_LIBRARY_PATH = str(Path("bin/LZX/Windows/LZXCompression.dll").absolute())
+	DECOMPRESSION_LIBRARY_PATH = str(Path("bin/LZX/Windows/LZXDecompression.dll").absolute())
+elif os == "Linux":
+	COMPRESSION_LIBRARY_PATH = str(Path("bin/LZX/Linux/liblzxc.so"))
+	DECOMPRESSION_LIBRARY_PATH = str(Path("bin/LZX/Linux/liblzxd.so"))
+else:
+	print("This only works on Windows or Linux!")
+	exit(0)
+
+# C constants
+LCI_SIGNATURE = 0x4349434C  # LCIC
+LDI_SIGNATURE = 0x4349444C  # LDIC
 LZX_WINDOW_SIZE = 128 * 1024  # 0x20000
 LZX_CHUNK_SIZE = 32 * 1024  # 0x8000
 MAX_GROWTH = 0x1800
@@ -35,7 +48,7 @@ ALIGNED_NUM_ELEMENTS = 8
 # C types
 NULL = 0
 NULLPTR = c_void_p(NULL)
-BOOL = c_bool
+BOOL = c_uint32
 BYTE = c_uint8
 CHAR = c_int8
 SHORT = c_int16
@@ -202,6 +215,26 @@ class t_decoder_context(LittleEndianStructure):
 		("dec_free", PFNFREE)
 	]
 
+class LCI_CONTEXT(LittleEndianStructure):
+	_fields_ = [
+		("signature", ULONG),
+		("pfnAlloc", PFNALLOC),
+		("pfnFree", PFNFREE),
+		("cbDataBlockMax", ULONG),
+		("file_translation_size", ULONG),
+		("encoder_context", POINTER(t_encoder_context))
+	]
+
+class LDI_CONTEXT(LittleEndianStructure):
+	_fields_ = [
+		("signature", ULONG),
+		("pfnAlloc", PFNALLOC),
+		("pfnFree", PFNFREE),
+		("cbDataBlockMax", ULONG),
+		("fCPUtype", ULONG),
+		("decoder_context", POINTER(t_decoder_context))
+	]
+
 class LZXBOX_BLOCK(BigEndianStructure):
 	_pack_ = 2
 	_fields_ = [
@@ -222,44 +255,44 @@ class LZXCompression:
 
 		self.chunk_size = chunk_size
 
-		self.dll = CDLL(self.compression_library_path)
+		self.dll = CDLL(COMPRESSION_LIBRARY_PATH)
 
-		# LCICreateCompression(UINT* pcbDataBlockMax, void* pvConfiguration, UINT* pcbDstBufferMin, LCI_CONTEXT_HANDLE * pmchHandle,
-		# 	  int (*pfnlzx_output_callback)(
-		#         void* pfol,
-		#         unsigned char* compressed_data,
+		# LONG LCICreateCompression(PULONG pcbDataBlockMax, PVOID pvConfiguration, PULONG pcbDstBufferMin, LCI_CONTEXT_HANDLE* pmchHandle,
+		# 	  LONG (*pfnlzx_output_callback)(
+		#         PVOID pfol,
+		#         PBYTE compressed_data,
 		#         LONG compressed_size,
 		#         LONG uncompressed_size
 		#     ),
-		#     void* fci_data);
+		#     PVOID fci_data);
 		self.dll.LCICreateCompression.argtypes = [PULONG, PVOID, PULONG, PLCI_CONTEXT_HANDLE, FNCALLBACK, PVOID]
 		self.dll.LCICreateCompression.restype = LONG
 
-		# int LCICompress(LCI_CONTEXT_HANDLE hmc, void* pbSrc, UINT cbSrc, void* pbDst, UINT cbDst, ULONG* pcbResult);
+		# LONG LCICompress(LCI_CONTEXT_HANDLE hmc, PVOID pbSrc, ULONG cbSrc, PVOID pbDst, ULONG cbDst, PULONG pcbResult);
 		self.dll.LCICompress.argtypes = [LCI_CONTEXT_HANDLE, PVOID, LONG, PVOID, LONG, PULONG]
 		self.dll.LCICompress.restype = LONG
 
-		# int LCIFlushCompressorOutput(LCI_CONTEXT_HANDLE hmc);
+		# LONG LCIFlushCompressorOutput(LCI_CONTEXT_HANDLE hmc);
 		self.dll.LCIFlushCompressorOutput.argtypes = [LCI_CONTEXT_HANDLE]
 		self.dll.LCIFlushCompressorOutput.restype = LONG
 
-		# int LCIResetCompression(LCI_CONTEXT_HANDLE hmc);
+		# LONG LCIResetCompression(LCI_CONTEXT_HANDLE hmc);
 		self.dll.LCIResetCompression.argtypes = [LCI_CONTEXT_HANDLE]
 		self.dll.LCIResetCompression.restype = LONG
 
-		# int LCIDestroyCompression(LCI_CONTEXT_HANDLE hmc);
+		# LONG LCIDestroyCompression(LCI_CONTEXT_HANDLE hmc);
 		self.dll.LCIDestroyCompression.argtypes = [LCI_CONTEXT_HANDLE]
 		self.dll.LCIDestroyCompression.restype = LONG
 
-		# int LCISetTranslationSize(LCI_CONTEXT_HANDLE hmc, ULONG size);
+		# LONG LCISetTranslationSize(LCI_CONTEXT_HANDLE hmc, ULONG size);
 		self.dll.LCISetTranslationSize.argtypes = [LCI_CONTEXT_HANDLE, LONG]
 		self.dll.LCISetTranslationSize.restype = LONG
 
-		# unsigned char* LCIGetInputData(LCI_CONTEXT_HANDLE hmc, ULONG *input_position, ULONG *bytes_available);
+		# PBYTE LCIGetInputData(LCI_CONTEXT_HANDLE hmc, PULONG input_position, PULONG bytes_available);
 		self.dll.LCIGetInputData.argtypes = [LCI_CONTEXT_HANDLE, PULONG, PULONG]
 		self.dll.LCIGetInputData.restype = PBYTE
 
-		# int LCISetWindowData(LCI_CONTEXT_HANDLE hmd, BYTE* pbWindowData, ULONG pcbWindowData);
+		# LONG LCISetWindowData(LCI_CONTEXT_HANDLE hmd, PBYTE pbWindowData, ULONG pcbWindowData);
 		self.dll.LCISetWindowData.argtypes = [LCI_CONTEXT_HANDLE, PBYTE, ULONG]
 		self.dll.LCISetWindowData.restype = LONG
 
@@ -267,13 +300,13 @@ class LZXCompression:
 		# 	  t_encoder_context* enc_context,
 		#     LONG compression_window_size,
 		#     LONG second_partition_size,
-		#     int (* pfnlzx_output_callback)(
-		#         void* pfol,
-		#         unsigned char* compressed_data,
+		#     LONG (* pfnlzx_output_callback)(
+		#         PVOID pfol,
+		#         PBYTE compressed_data,
 		#         LONG compressed_size,
 		#         LONG uncompressed_size
 		#     ),
-		#     void* fci_data);
+		#     PVOID fci_data);
 		self.dll.LZX_EncodeInit.argtypes = [POINTER(t_encoder_context), LONG, LONG, FNCALLBACK, PVOID]
 		self.dll.LZX_EncodeInit.restype = BOOL
 
@@ -282,10 +315,10 @@ class LZXCompression:
 		self.dll.LZX_EncodeNewGroup.restype = None
 
 		# LONG LZX_Encode(
-		#     t_encoder_context * context,
-		#     byte* input_data,
+		#     t_encoder_context* context,
+		#     PBYTE input_data,
 		#     LONG input_size,
-		#     LONG* bytes_compressed,
+		#     PLONG bytes_compressed,
 		#     LONG file_size_for_translation);
 		self.dll.LZX_Encode.argtypes = [POINTER(t_encoder_context), PBYTE, LONG, PLONG, LONG]
 		self.dll.LZX_Encode.restype = LONG
@@ -300,14 +333,14 @@ class LZXCompression:
 
 		# unsigned char* LZX_GetInputData(
 		#     t_encoder_context *context,
-		#     ULONG *input_position,
-		#     ULONG *bytes_available);
+		#     PULONG input_position,
+		#     PULONG bytes_available);
 		self.dll.LZX_GetInputData.argtypes = [POINTER(t_encoder_context), PULONG, PULONG]
 		self.dll.LZX_GetInputData.restype = PBYTE
 
 		# bool LZX_EncodeInsertDictionary(
 		#     t_encoder_context* context,
-		#     byte* input_data,
+		#     PBYTE input_data,
 		#     ULONG input_size);
 		self.dll.LZX_EncodeInsertDictionary.argtypes = [POINTER(t_encoder_context), PBYTE, ULONG]
 		self.dll.LZX_EncodeInsertDictionary.restype = BOOL
@@ -333,22 +366,12 @@ class LZXCompression:
 	#	self.callback = None
 	#	self.compressed_stream = BytesIO()
 
-	@property
-	def compression_library_path(self) -> str | None:
-		os = system()
-		if os == "Windows":
-			return str(Path("bin/LZX/Windows/LZXCompression.dll").absolute())
-		elif os == "Linux":
-			return str(Path("bin/LZX/Linux/liblzxc.so"))
-		else:
-			return None
-
 	def create(self) -> int:
 		self.ctx = LCI_CONTEXT_HANDLE()
 
-		lzxc = LZXCOMPRESS()
-		lzxc.WindowSize = LZX_WINDOW_SIZE
-		lzxc.SecondPartitionSize = 32 * 1024
+		lzx = LZXCOMPRESS()
+		lzx.WindowSize = LZX_WINDOW_SIZE
+		lzx.SecondPartitionSize = 32 * 1024
 
 		pcbDataBlockMax = self.chunk_size
 		pcbDstBufferMin = 0
@@ -358,13 +381,24 @@ class LZXCompression:
 
 		ret = self.dll.LCICreateCompression(
 			pointer(ULONG(pcbDataBlockMax)),
-			pointer(lzxc),
+			pointer(lzx),
 			pointer(ULONG(pcbDstBufferMin)),
 			pointer(self.ctx),
 			self.callback,
 			NULLPTR
 		)
 		assert ret == 0, f"LCICreateCompression failed with code 0x{ret:X}!"
+
+		# lci = LCI_CONTEXT.from_address(self.ctx.value)
+
+		# print(f"0x{addressof(lci.pfnAlloc.contents):X}")
+		# print(f"0x{addressof(lci.pfnFree.contents):X}")
+
+		# print(f"0x{addressof(lci.encoder_context.contents.enc_malloc.contents) & ((1 << 64) - 1):X}")
+		# print(f"0x{addressof(lci.encoder_context.contents.enc_free.contents) & ((1 << 64) - 1):X}")
+
+		# print(lci.signature == LCI_SIGNATURE)
+
 		return ret
 
 	def reset(self) -> int:
@@ -422,13 +456,13 @@ class LZXDecompression:
 
 		self.chunk_size = chunk_size
 
-		self.dll = CDLL(self.decompression_library_path)
+		self.dll = CDLL(DECOMPRESSION_LIBRARY_PATH)
 
-		# int LDICreateDecompression(UINT* pcbDataBlockMax, void* pvConfiguration, UINT* pcbSrcBufferMin, LDI_CONTEXT_HANDLE* pmdhHandle);
+		# int LDICreateDecompression(PULONG pcbDataBlockMax, PVOID pvConfiguration, PULONG pcbSrcBufferMin, LDI_CONTEXT_HANDLE* pmdhHandle);
 		self.dll.LDICreateDecompression.argtypes = [PULONG, PVOID, PULONG, PLDI_CONTEXT_HANDLE]
 		self.dll.LDICreateDecompression.restype = LONG
 
-		# int LDIDecompress(LDI_CONTEXT_HANDLE hmd, void* pbSrc, UINT cbSrc, void* pbDst, UINT* pcbResult);
+		# int LDIDecompress(LDI_CONTEXT_HANDLE hmd, PVOID pbSrc, UINT cbSrc, PVOID pbDst, PULONG pcbResult);
 		self.dll.LDIDecompress.argtypes = [LDI_CONTEXT_HANDLE, PVOID, LONG, PVOID, PULONG]
 		self.dll.LDIDecompress.restype = LONG
 
@@ -440,11 +474,11 @@ class LZXDecompression:
 		self.dll.LDIDestroyDecompression.argtypes = [LDI_CONTEXT_HANDLE]
 		self.dll.LDIDestroyDecompression.restype = LONG
 
-		# int LDIGetWindow(LDI_CONTEXT_HANDLE hmd, BYTE** ppWindow, LONG* pFileOffset, LONG* pWindowOffset, LONG* pcbBytesAvail);
+		# int LDIGetWindow(LDI_CONTEXT_HANDLE hmd, PBYTE* ppWindow, PLONG pFileOffset, PLONG pWindowOffset, PLONG pcbBytesAvail);
 		self.dll.LDIGetWindow.argtypes = [LDI_CONTEXT_HANDLE, POINTER(PBYTE), PLONG, PLONG, PLONG]
 		self.dll.LDIGetWindow.restype = LONG
 
-		# int LDISetWindowData(LDI_CONTEXT_HANDLE hmd, BYTE* pbWindowData, ULONG pcbWindowData);
+		# int LDISetWindowData(LDI_CONTEXT_HANDLE hmd, PBYTE pbWindowData, ULONG pcbWindowData);
 		self.dll.LDISetWindowData.argtypes = [LDI_CONTEXT_HANDLE, PBYTE, ULONG]
 		self.dll.LDISetWindowData.restype = LONG
 
@@ -456,11 +490,11 @@ class LZXDecompression:
 		self.dll.LZX_DecodeNewGroup.argtypes = [POINTER(t_decoder_context)]
 		self.dll.LZX_DecodeNewGroup.restype = None
 
-		# int LZX_Decode(t_decoder_context *context, int bytes_to_decode, byte* compressed_input_buffer, int compressed_input_size, byte* uncompressed_output_buffer, int uncompressed_output_size, int* bytes_decoded);
+		# int LZX_Decode(t_decoder_context *context, LONG bytes_to_decode, PBYTE compressed_input_buffer, LONG compressed_input_size, PBYTE uncompressed_output_buffer, LONG uncompressed_output_size, PLONG bytes_decoded);
 		self.dll.LZX_Decode.argtypes = [POINTER(t_decoder_context), LONG, PBYTE, LONG, PBYTE, LONG, PLONG]
 		self.dll.LZX_Decode.restype = LONG
 
-		# bool LZX_DecodeInsertDictionary(t_decoder_context *context, const byte* data, ULONG data_size);
+		# bool LZX_DecodeInsertDictionary(t_decoder_context *context, const PBYTE data, ULONG data_size);
 		self.dll.LZX_DecodeInsertDictionary.argtypes = [POINTER(t_decoder_context), PBYTE, ULONG]
 		self.dll.LZX_DecodeInsertDictionary.restype = BOOL
 
@@ -482,33 +516,34 @@ class LZXDecompression:
 	#	self.chunk_size = None
 	#	self.ctx = None
 
-	@property
-	def decompression_library_path(self) -> str | None:
-		os = system()
-		if os == "Windows":
-			return str(Path("bin/LZX/Windows/LZXDecompression.dll").absolute())
-		elif os == "Linux":
-			return str(Path("bin/LZX/Linux/liblzxd.so"))
-		else:
-			return None
-
 	def create(self) -> int:
 		self.ctx = LDI_CONTEXT_HANDLE()
 
-		lzxd = LZXDECOMPRESS()
-		lzxd.WindowSize = LZX_WINDOW_SIZE
-		lzxd.fCPUtype = 1
+		lzx = LZXDECOMPRESS()
+		lzx.WindowSize = LZX_WINDOW_SIZE
+		lzx.fCPUtype = 1
 
 		pcbDataBlockMax = self.chunk_size
 		pcbSrcBufferMin = 0
 
 		ret = self.dll.LDICreateDecompression(
 			pointer(ULONG(pcbDataBlockMax)),
-			pointer(lzxd),
+			pointer(lzx),
 			pointer(ULONG(pcbSrcBufferMin)),
 			pointer(self.ctx)
 		)
 		assert ret == 0, f"LDICreateDecompression failed with code 0x{ret:X}!"
+
+		ldi = LDI_CONTEXT.from_address(self.ctx.value)
+
+		# print(f"0x{addressof(ldi.pfnAlloc.contents):X}")
+		# print(f"0x{addressof(ldi.pfnFree.contents):X}")
+
+		# print(f"0x{addressof(ldi.decoder_context.contents.dec_malloc.contents) & ((1 << 64) - 1):X}")
+		# print(f"0x{addressof(ldi.decoder_context.contents.dec_free.contents) & ((1 << 64) - 1):X}")
+
+		# print(ldi.signature == LDI_SIGNATURE)
+
 		return ret
 
 	def reset(self) -> int:
