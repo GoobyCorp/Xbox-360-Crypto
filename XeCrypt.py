@@ -11,7 +11,8 @@ __version__ = "1.0.0.0"
 __license__ = "BSD"
 __status__ = "Development"
 
-from pathlib import Path
+from math import ceil
+from io import BytesIO
 from random import randbytes
 from typing import Union, Tuple, Optional, TypeVar
 from struct import pack, unpack, pack_into, unpack_from, calcsize
@@ -287,18 +288,18 @@ def b2i(b: BinLike, bswap: bool = False) -> int:
 		b = bswap64(b)
 	return int.from_bytes(b, "little", signed=False)
 
-def i2b(i: int, size: int, bswap: bool = False) -> BinLike:
-	data = i.to_bytes(size, "little", signed=False)
+def i2b(i: int, size: int = 0, bswap: bool = False) -> BinLike:
+	data = i.to_bytes(ceil(i.bit_length() / 8) if size == 0 else size, "little", signed=False)
 	data = rsa_pad(data)  # sometimes the data isn't evenly divisible by 8
 	if bswap:
 		data = bswap64(data)
 	return data
 
 def rotl(value: int, shift: int, bits: int = 32) -> int:
-	return (((value << shift) | (value >> (bits - shift))) & ((1 << bits) - 1)) & create_bitmask(bits)
+	return ((value << shift) | (value >> (bits - shift))) & create_bitmask(bits)
 
 def rotr(value: int, shift: int, bits: int = 32) -> int:
-	return (((value >> shift) | (value << (bits - shift))) & ((1 << bits) - 1)) & create_bitmask(bits)
+	return ((value >> shift) | (value << (bits - shift))) & create_bitmask(bits)
 
 def bswap(data: BinLike, fmt: str) -> BinLike:
 	size = calcsize(fmt)
@@ -529,11 +530,19 @@ def XeCryptParveEcb(key: BinLike, sbox: BinLike, data: BinLike) -> BinLike:
 	block[8] = block[0]
 	for i in range(8, 0, -1):
 		for j in range(8):
-			x = key[j] + block[j] + i
+			x = key[j]
+			x += block[j]
+			x += i
 			x &= UINT8_MASK
-			y = sbox[x] + block[j + 1]
+
+			y = sbox[x]
+			y += block[j + 1]
 			y &= UINT8_MASK
-			block[j + 1] = rotl(y, 1, 8)
+			# y *= 2
+			y = rotl(y, 1, 8)
+			y &= UINT8_MASK
+
+			block[j + 1] = y
 		block[0] = block[8]
 	return block[:8]
 
@@ -620,8 +629,7 @@ def XeCryptRotSumSha(data: BinLike) -> BinLike:
 	return h.finalize()
 
 # RSA
-def XeCryptBnQwNeModInv(val: int) -> int:
-	return pow(1 << 64, -1, val)
+XeCryptBnQwNeModInv = lambda v: pow(1 << 64, -1, v)
 
 def XeCryptBnQwNeModExpRoot(c: int, p: int, q: int, dp: int, dq: int, u: int) -> int:
 	m1 = pow(c, dp, p)
@@ -818,26 +826,26 @@ def XeCryptBnQwNeRsaPubCrypt(data: BinLike, pub_key: BinLike) -> Union[BinLike, 
 
 # Utility
 def XeCryptSmcDecrypt(data: BinLike) -> BinLike:
-	res = b""
 	key = list(XECRYPT_SMC_KEY)
-	for i in range(0, len(data)):
-		j = data[i]
-		mod = j * 0xFB
-		res += bytes([j ^ (key[i & 3] & 0xFF)])
-		key[(i + 1) & 3] += mod
-		key[(i + 2) & 3] += mod >> 8
-	return res
+	with BytesIO() as bio:
+		for i in range(0, len(data)):
+			j = data[i]
+			mod = j * 0xFB
+			bio.write(pack("B", j ^ (key[i & 3] & 0xFF)))
+			key[(i + 1) & 3] += mod
+			key[(i + 2) & 3] += mod >> 8
+		return bio.getvalue()
 
 def XeCryptSmcEncrypt(data: BinLike) -> BinLike:
-	res = b""
 	key = list(XECRYPT_SMC_KEY)
-	for i in range(0, len(data)):
-		j = data[i] ^ (key[i & 3] & 0xFF)
-		mod = j * 0xFB
-		res += bytes([j])
-		key[(i + 1) & 3] += mod
-		key[(i + 2) & 3] += mod >> 8
-	return res
+	with BytesIO() as bio:
+		for i in range(0, len(data)):
+			j = data[i] ^ (key[i & 3] & 0xFF)
+			mod = j * 0xFB
+			bio.write(pack("B", j))
+			key[(i + 1) & 3] += mod
+			key[(i + 2) & 3] += mod >> 8
+		return bio.getvalue()
 
 def XeCryptHammingWeight(data: BinLike) -> int:
 	wght = 0

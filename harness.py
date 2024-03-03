@@ -3,6 +3,7 @@
 from struct import unpack_from
 
 from XeCrypt import *
+from build_lib import *
 
 # test data
 TEST_DATA: bytes = b""

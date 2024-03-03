@@ -1,18 +1,19 @@
 #!/usr/bin/env python3
 
+# References:
+# http://oct0xor.github.io/2017/05/03/xsm3/
+# https://github.com/oct0xor/xbox_security_method_3
+# https://github.com/InvoxiPlayGames/libxsm3/blob/master/xsm3.c
+
 from enum import IntEnum
 from typing import TypeVar
 from random import randbytes
 from struct import pack_into, unpack_from
 
 from XeCrypt import *
+from build_lib import *
 
 BinLike = TypeVar("BinLike", bytes, bytearray)
-
-# References:
-# http://oct0xor.github.io/2017/05/03/xsm3/
-# https://github.com/oct0xor/xbox_security_method_3
-# https://github.com/InvoxiPlayGames/libxsm3/blob/master/xsm3.c
 
 STATIC_KEY_1 = b""
 STATIC_KEY_2 = b""
@@ -167,7 +168,9 @@ def UsbdSecXSMAuthenticationAcr(key: BinLike, cert: BinLike, data: BinLike) -> B
 	block = data[:4] + cert[:4]
 
 	iv = XeCryptParveEcb(key, SBOX, data[0x10:])
+
 	cd = XeCryptParveEcb(key, SBOX, block)
+
 	ab = XeCryptParveCbcMac(key, SBOX, iv, UsbdSecPlainTextData[:0x80])
 	output = XeCryptChainAndSumMac(cd, ab, UsbdSecPlainTextData[:0x80])
 
@@ -327,7 +330,7 @@ def main() -> int:
 		xsm3_challenge_response = xsm3.xsm3_do_challenge_init(UsbdSecXSM3SetChallengeProtocolData)
 		print(f"0x{len(xsm3_challenge_response):X}")
 		xsm3_challenge_response = xsm3.xsm3_do_challenge_verify(UsbdSecXSM3GetResponseVerifyProtocolData1)
-		print(f"0x{len(xsm3_challenge_response):X}")
+		# print(f"0x{len(xsm3_challenge_response):X}")
 
 	return 0
 

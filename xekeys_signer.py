@@ -6,8 +6,9 @@ from enum import IntEnum
 from os.path import isfile
 from argparse import ArgumentParser
 
-from keystore import load_and_verify_hvx_prv
 from XeCrypt import *
+from build_lib import *
+from keystore import load_and_verify_hvx_prv
 
 PAYLOAD_SALT = b"XBOX_EX_01"
 

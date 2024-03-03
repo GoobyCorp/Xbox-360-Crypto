@@ -1,17 +1,20 @@
+# ignore extensions
 /*.bin
 /*.log
 /*.txt
 /*.7z
 /*.rar
 /*.zip
+
+# ignore files
+/map.txt
+/bin/loaders/patch_loader.bin
+/Patches/Dump100C0.S
 /test.py
 /build_flash.py
 /compression.py
 
-/map.txt
-/bin/loaders/patch_loader.bin
-/Patches/Dump100C0.S
-
+# ignore directories
 /.idea/
 /Research/
 /Data/
@@ -27,3 +30,6 @@
 /xeBuild_1.21/
 /XeLL/
 /Keys/
+
+# file exemptions
+!/Build/manifest_template.json

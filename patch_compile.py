@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 
-from pathlib import Path
-
 from build_lib import *
 
 PATCH_DIR = "Patches"
-
 
 def main() -> int:
 	assemble_rgl_flash("Patches/RGL/17559-dev/RGLoader-dev.S", "Output/NonZero/RGL_flash.bin")

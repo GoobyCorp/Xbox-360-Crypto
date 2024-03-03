@@ -1,0 +1,94 @@
+{
+  "description": "",
+
+  "_comment": "All file paths are relative to the manifest file's location",
+  "_comment": "All checksums are simple CRC32's",
+
+  "build": {
+    "_comment": "The build version to want to apply to the shadowboot image",
+    "version": 0,
+
+    "_comment": "The copyright to add to the beginning of the shadowboot image",
+    "copyright": "",
+
+    "_comment": "The CPU key used to encrypt the KV",
+    "cpu_key": ""
+  },
+
+  "options": {
+    "_comment": "This will disable signature checks",
+    "test_kit": false,
+    "_comment": "This will disable signature checks on the input shadowboot image",
+    "base_image_checks_disabled": false,
+    "_comment": "This will enable code being added to the end of the SD",
+    "_comment": "This will automatically patch in the RFID jump",
+    "SD_code_enabled": false,
+    "_comment": "Same as above but it will replace the code with a patch loader",
+    "_comment": "Patches come after the loader and are in the XeBuild format",
+    "SD_patches_enabled": false,
+    "_comment": "Use SMC binary in build",
+    "use_smc": false,
+    "_comment": "Use SMC config in build",
+    "use_smc_config": false,
+    "_comment": "Use KV in build",
+    "use_kv": false
+  },
+
+  "files": {
+    "_comment": "The directory to use for the build",
+    "base_directory": "",
+
+    "_comment": "The shadowboot to use when fields are missing",
+    "base_image": "",
+    "base_image_checksum": 0,
+
+    "_comment": "The SMC binary to use, only applies when use_smc is true",
+    "SMC": "",
+
+    "_comment": "The SMC config to use, only applies when use_smc_config is true",
+    "SMC_config": "",
+
+    "_comment": "The KV to use, only applies when use_kv is true",
+    "KV": "",
+
+    "_comment": "The SB (2BL) bootloader",
+    "SB": "",
+    "SB_checksum": 0,
+
+    "_comment": "The SC (3BL) bootloader",
+    "SC": "",
+    "SC_checksum": 0,
+
+    "_comment": "The SD (4BL) bootloader",
+    "SD": "",
+    "SD_checksum": 0,
+    "_comment": "The patches to insert into the SD (4BL)",
+    "SD_patches": "",
+    "SD_patches_checksum": 0,
+    "_comment": "The code to run before the kernel is loaded",
+    "SD_code": "",
+    "SD_code_checksum": 0,
+
+    "_comment": "The SE (5BL) that contains the kernel + HV",
+    "SE": "",
+    "SE_checksum": 0,
+
+    "_comment": "The kernel",
+    "kernel": "",
+    "kernel_checksum": 0,
+    "_comment": "Patches that will be applied to the kernel",
+    "kernel_patches": "",
+    "kernel_patches_checksum": 0,
+
+    "_comment": "The HV (hypervisor)",
+    "HV": "",
+    "HV_checksum": 0,
+    "_comment": "Patches that will be applied to the HV",
+    "HV_patches": "",
+    "HV_patches_checksum": 0,
+
+    "_comment": "Kernel and HV patches combined",
+    "KHV_patches": "",
+    "KHV_patches_checksum": 0
+  }
+}

@@ -7,6 +7,7 @@ from os.path import isfile
 from argparse import ArgumentParser
 
 from XeCrypt import *
+from build_lib import *
 
 EXP_SALT = b"XBOX360EXP"
 EXP_SIZE = 0x1000

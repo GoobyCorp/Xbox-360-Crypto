@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import TypeVar
 from platform import system
 from struct import calcsize
+from enum import IntEnum, auto
 
 BinLike = TypeVar("BinLike", bytes, bytearray, memoryview)
 
@@ -17,6 +18,7 @@ if calcsize("P") * 8 != 64:
 	print("This only works on 64-bit operating systems!")
 	exit(0)
 
+# make sure it's Windows or Linux
 os = system()
 if os == "Windows":
 	COMPRESSION_LIBRARY_PATH = str(Path("bin/LZX/Windows/LZXCompression.dll").absolute())
@@ -79,6 +81,17 @@ PFNALLOC = POINTER(FNALLOC)
 PFNFREE = POINTER(FNFREE)
 PFNCALLBACK = POINTER(FNCALLBACK)
 
+class lzx_block_type(IntEnum):
+	BLOCKTYPE_INVALID = 0
+	BLOCKTYPE_VERBATIM = auto()
+	BLOCKTYPE_ALIGNED = auto()
+	BLOCKTYPE_UNCOMPRESSED = auto()
+
+class decoder_state(IntEnum):
+	DEC_STATE_UNKNOWN = 0
+	DEC_STATE_START_NEW_BLOCK = auto()
+	DEC_STATE_DECODING_DATA = auto()
+
 class LZXCOMPRESS(LittleEndianStructure):
 	_pack_ = 2
 	_fields_ = [
@@ -94,6 +107,7 @@ class LZXDECOMPRESS(LittleEndianStructure):
 	]
 
 class decision_node(LittleEndianStructure):
+	_pack_ = 2
 	_fields_ = [
 		("link", ULONG),
 		("path", ULONG),
@@ -102,6 +116,7 @@ class decision_node(LittleEndianStructure):
 	]
 
 class t_encoder_context(LittleEndianStructure):
+	_pack_ = 8
 	_fields_ = [
 		("enc_MemWindow", PBYTE),
 		("enc_window_size", ULONG),
@@ -178,6 +193,7 @@ class t_encoder_context(LittleEndianStructure):
 	]
 
 class t_decoder_context(LittleEndianStructure):
+	_pack_ = 8
 	_fields_ = [
 		("dec_mem_window", PBYTE),
 		("dec_window_size", ULONG),
@@ -209,11 +225,27 @@ class t_decoder_context(LittleEndianStructure):
 		("dec_num_cfdata_frames", ULONG),
 		("dec_original_block_size", LONG),
 		("dec_block_size", LONG),
-		("dec_block_type", LONG),  # lzx_block_type
-		("dec_decoder_state", LONG),  # decoder_state
+		("_dec_block_type", LONG),  # lzx_block_type
+		("_dec_decoder_state", LONG),  # decoder_state
 		("dec_malloc", PFNALLOC),
 		("dec_free", PFNFREE)
 	]
+
+	@property
+	def dec_block_type(self) -> lzx_block_type:
+		return lzx_block_type(self._dec_block_type)
+
+	@dec_block_type.setter
+	def dec_block_type(self, value: lzx_block_type | int) -> None:
+		self._dec_block_type = int(value)
+
+	@property
+	def dec_decoder_state(self) -> decoder_state:
+		return decoder_state(self._dec_decoder_state)
+
+	@dec_decoder_state.setter
+	def dec_decoder_state(self, value: decoder_state | int) -> None:
+		self._dec_decoder_state = int(value)
 
 class LCI_CONTEXT(LittleEndianStructure):
 	_fields_ = [
@@ -389,15 +421,21 @@ class LZXCompression:
 		)
 		assert ret == 0, f"LCICreateCompression failed with code 0x{ret:X}!"
 
-		# lci = LCI_CONTEXT.from_address(self.ctx.value)
+		lci = LCI_CONTEXT.from_address(self.ctx.value)
 
-		# print(f"0x{addressof(lci.pfnAlloc.contents):X}")
-		# print(f"0x{addressof(lci.pfnFree.contents):X}")
+		a_addr_0 = addressof(lci.pfnAlloc.contents)
+		f_addr_0 = addressof(lci.pfnFree.contents)
 
-		# print(f"0x{addressof(lci.encoder_context.contents.enc_malloc.contents) & ((1 << 64) - 1):X}")
-		# print(f"0x{addressof(lci.encoder_context.contents.enc_free.contents) & ((1 << 64) - 1):X}")
+		a_addr_1 = addressof(lci.encoder_context.contents.enc_malloc.contents)
+		f_addr_1 = addressof(lci.encoder_context.contents.enc_free.contents)
 
-		# print(lci.signature == LCI_SIGNATURE)
+		b = 1
+		b &= lci.signature == LCI_SIGNATURE
+		b &= a_addr_0 == a_addr_1
+		b &= f_addr_0 == f_addr_1
+		b = bool(b)
+
+		assert b, f"LCI t_encoder_context integrity failed!"
 
 		return ret
 
@@ -412,6 +450,8 @@ class LZXCompression:
 	def callback_func(self, pfol: int | None, compressed_data: PBYTE, compressed_size: int, uncompressed_size: int) -> int:
 		pcd = (c_ubyte * compressed_size)()
 		memmove(pcd, compressed_data, compressed_size)
+
+		# print("CALLBACK!")
 
 		hdr = LZXBOX_BLOCK()
 		hdr.CompressedSize = compressed_size
@@ -536,13 +576,19 @@ class LZXDecompression:
 
 		ldi = LDI_CONTEXT.from_address(self.ctx.value)
 
-		# print(f"0x{addressof(ldi.pfnAlloc.contents):X}")
-		# print(f"0x{addressof(ldi.pfnFree.contents):X}")
+		a_addr_0 = addressof(ldi.pfnAlloc.contents)
+		f_addr_0 = addressof(ldi.pfnFree.contents)
 
-		# print(f"0x{addressof(ldi.decoder_context.contents.dec_malloc.contents) & ((1 << 64) - 1):X}")
-		# print(f"0x{addressof(ldi.decoder_context.contents.dec_free.contents) & ((1 << 64) - 1):X}")
+		a_addr_1 = addressof(ldi.decoder_context.contents.dec_malloc.contents)
+		f_addr_1 = addressof(ldi.decoder_context.contents.dec_free.contents)
 
-		# print(ldi.signature == LDI_SIGNATURE)
+		b = 1
+		b &= ldi.signature == LDI_SIGNATURE
+		b &= a_addr_0 == a_addr_1
+		b &= f_addr_0 == f_addr_1
+		b = bool(b)
+
+		assert b, f"LDI t_decoder_context integrity failed!"
 
 		return ret
 

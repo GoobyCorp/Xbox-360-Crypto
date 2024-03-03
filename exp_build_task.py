@@ -12,16 +12,16 @@ def main() -> int:
 	print("Assembling HVPP.S...")
 	assemble_patch("Patches/HVPP.S", "Output/Compiled/HVPP.bin")
 
-	print("Assembling devkit SpoofyTest.S...")
-	assemble_devkit_patch("Patches/SpoofyTest.S", "Output/Compiled/SpoofyTest_dev.bin")
-	print("Assembling retail SpoofyTest.S...")
-	assemble_retail_patch("Patches/SpoofyTest.S", "Output/Compiled/SpoofyTest_retail.bin")
+	print("Assembling devkit Spoofy.S...")
+	assemble_devkit_patch("Patches/Spoofy.S", "Output/Compiled/Spoofy_dev.bin")
+	print("Assembling retail Spoofy.S...")
+	assemble_retail_patch("Patches/Spoofy.S", "Output/Compiled/Spoofy_retail.bin")
 
 	# generic
 	# spoofy
-	print("Creating generic SpoofyTest...")
-	sign_exp("Output/Compiled/SpoofyTest_dev.bin", "Output/Compiled/Generic/SpoofyTest_signed.bin", exp_id=DEFAULT_EXP_ID)
-	lang_format("Output/Compiled/Generic/SpoofyTest_signed.bin", "Output/Compiled/Generic/SpoofyTest.h", Language.CPLUSPLUS, "ExpansionData")
+	print("Creating generic Spoofy...")
+	sign_exp("Output/Compiled/Spoofy_dev.bin", "Output/Compiled/Generic/Spoofy_signed.bin", exp_id=DEFAULT_EXP_ID)
+	lang_format("Output/Compiled/Generic/Spoofy_signed.bin", "Output/Compiled/Generic/Spoofy.h", Language.CPLUSPLUS, "ExpansionData")
 
 	# devkit
 	print("Creating generic devkit HVPP...")
@@ -40,9 +40,9 @@ def main() -> int:
 
 	# xbOnline
 	# spoofy
-	print("Creating xbOnline SpoofyTest...")
-	sign_exp("Output/Compiled/SpoofyTest_dev.bin", "Output/Compiled/xbOnline/SpoofyTest_signed.bin", exp_id=XBONLINE_EXP_ID)
-	lang_format("Output/Compiled/xbOnline/SpoofyTest_signed.bin", "Output/Compiled/xbOnline/SpoofyTest.h", Language.CPLUSPLUS, "ExpansionData")
+	print("Creating xbOnline Spoofy...")
+	sign_exp("Output/Compiled/Spoofy_dev.bin", "Output/Compiled/xbOnline/Spoofy_signed.bin", exp_id=XBONLINE_EXP_ID)
+	lang_format("Output/Compiled/xbOnline/Spoofy_signed.bin", "Output/Compiled/xbOnline/Spoofy.h", Language.CPLUSPLUS, "ExpansionData")
 
 	# devkit
 	print("Creating xbOnline devkit HVPP...")

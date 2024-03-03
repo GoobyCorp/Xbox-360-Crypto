@@ -9,8 +9,9 @@ from struct import pack, pack_into, unpack_from
 from ctypes import BigEndianStructure, c_char, c_ubyte, c_uint16, c_uint32, c_uint64
 
 from XeCrypt import *
+from lzx import *
+
 from StreamIO import *
-from LZX import *
 
 BinLike = TypeVar("BinLike", bytes, bytearray, memoryview)
 
@@ -254,8 +255,6 @@ def get_bldr_size_in_place(stream: BinaryIO, offset: int) -> int:
 def patch_in_place(stream: BinaryIO, patches: BinLike) -> int:
 	c = 0
 	loc = stream.tell()
-	# stream.seek(0, SEEK_END)
-	# bldr_size = stream.tell()
 	with StreamIO(patches, Endian.BIG) as pio:
 		while True:
 			addr = pio.read_uint32()
@@ -263,13 +262,13 @@ def patch_in_place(stream: BinaryIO, patches: BinLike) -> int:
 				break
 			size = pio.read_uint32()
 			size *= 4
-			data = pio.read(size)
+			pdata = pio.read(size)
 			stream.seek(addr)
-			test = stream.read(size)
-			if test == data:
+			tdata = stream.read(size)
+			if pdata == tdata:
 				continue
 			stream.seek(addr)
-			stream.write(data)
+			stream.write(pdata)
 			c += 1
 	stream.seek(loc)
 	return c
@@ -331,12 +330,12 @@ def sign_bldr_in_place(stream: BinaryIO, offset: int, key: XeCryptRsaKey) -> Non
 def decompress_se(data: Union[bytes, bytearray], skip_header: bool = True) -> bytes:
 	if skip_header:
 		data = data[0x30:]
-	with LZXDecompression() as lzxd:
-		return lzxd.decompress_continuous(data)
+	with LZXDecompression() as lzx:
+		return lzx.decompress_continuous(data)
 
 def compress_se(data: Union[bytes, bytearray], include_header: bool = True) -> bytes:
-	with LZXCompression() as lzxc:
-		data = lzxc.compress_continuous(data)
+	with LZXCompression() as lzx:
+		data = lzx.compress_continuous(data)
 		if include_header:
 			data = bytearray(0x30) + data
 			pack_into(">I", data, 0xC, len(data))

@@ -177,7 +177,7 @@ class ShadowbootImage:
 	@staticmethod
 	def create(sb_data: BinLike, sc_data: BinLike, sd_data: BinLike, se_data: BinLike, smc_data: Optional[BinLike] = None, kv_data: Optional[tuple[BinLike, BinLike]] = None, patches: Optional[BinLike] = None, test_kit: Optional[bool] = False, build_version: Optional[int] = BUILD_VER) -> bytes:
 		# probably never going to actually implement this since I have building working already
-		img = ShadowbootImage()
+		# img = ShadowbootImage()
 
 		new_sb_nonce = XeCryptRandom(0x10)
 		new_sb_key = XeCryptHmacSha(XECRYPT_1BL_KEY, new_sb_nonce)[:0x10]
@@ -334,6 +334,8 @@ class ShadowbootImage:
 			if not test_kit:
 				ShadowbootImage.parse(data)
 				print("Final image verified!")
+			else:
+				print("Final image created!")
 
 			return data
 
