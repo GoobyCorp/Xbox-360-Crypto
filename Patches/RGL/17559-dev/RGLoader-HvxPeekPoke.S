@@ -29,7 +29,7 @@ checkOpType:
 	cmplwi    cr6, %r4, 4
 	bgt       cr6, doMemCpy
 	beq       cr6, hvxExecuteCode
-	li        %r5, 0x154C
+	li        %r5, 0x15F0
 	lis       %r6, 0x3880 #;//0x38800007
 	cmplwi    cr6, %r4, 2
 	bne       cr6, loc_B5C0
