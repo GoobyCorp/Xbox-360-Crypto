@@ -105,7 +105,7 @@ def generate_gf2_table(iv: int, poly: int) -> list[int]:
 		tab[i] = crc & UINT16_MASK
 	return tab
 
-def some_bullshit(key: bytes | bytearray, buffer: bytes | bytearray, offset: int, length: int) -> bytes:
+def pack_sec_eng_keys(key: bytes | bytearray, buffer: bytes | bytearray, offset: int, length: int) -> bytes:
 	cycle = 0
 	while length > 0:
 		h = Hash(SHA1())
@@ -344,8 +344,8 @@ class MemoryCrypto:
 		key_blob[0x50:0x50+0x10] = self.white_key
 		key_blob[0x60:0x60+0x10] = self.aes_key
 		key_blob[0x70:0x70+0x10] = self.hash_key
-		key_blob = some_bullshit(key_blob[0x1:0x15], key_blob, 0x15, 0x6B)
-		key_blob = some_bullshit(key_blob[0x15:0x15 + 0x6B], key_blob, 1, 0x14)
+		key_blob = pack_sec_eng_keys(key_blob[0x1:0x15], key_blob, 0x15, 0x6B)
+		key_blob = pack_sec_eng_keys(key_blob[0x15:0x15 + 0x6B], key_blob, 1, 0x14)
 		return rsa_encrypt(MASTER_PUB, key_blob)
 
 	def calc_100f0(self, hv_data_dec: bytes | bytearray, tbl_addr: int) -> bytes:
