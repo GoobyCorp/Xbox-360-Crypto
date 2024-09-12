@@ -12,6 +12,9 @@ A library that includes most of the Xbox 360's cryptographic library.
 ### [harness.py](harness.py)
 A script to test XeCrypt to make sure it's functioning properly.
 
+### [MemCrypto.py](MemCrypto.py)
+A script that replicates the Xbox 360's hardware memory encryption algorithm.
+
 ### [shadowboot.py](shadowboot.py)
 A shadowboot builder and extractor script.
 
