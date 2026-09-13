@@ -15,11 +15,23 @@ from build_lib import *
 
 BinLike = TypeVar("BinLike", bytes, bytearray)
 
-STATIC_KEY_1 = b""
-STATIC_KEY_2 = b""
+# Global XSM3 device keys, key vault slots 0x1D and 0x1E. These are identical on every
+# retail console, so they can be hardcoded rather than dumped out of a key vault.
+STATIC_KEY_1 = bytes.fromhex("E35BFB1CCDAD325BF70E07FD623DA7C4")
+STATIC_KEY_2 = bytes.fromhex("8F2908380B5BFE687C26462A51F2BC19")
 
-DYNAMIC_KEY_1 = b""
-DYNAMIC_KEY_2 = b""
+# The same keys from a development kit key vault:
+# STATIC_KEY_1 = bytes.fromhex("C215E55EE551942AEC3D45ECB6E6F216")
+# STATIC_KEY_2 = bytes.fromhex("C745AD1F080BD9E99B1C34E3A46DC8C4")
+
+# Root keys that derive the per-console wired controller keys (key vault slots 0x23 and
+# 0x24) from an 8 byte console ID - see xsm3_generate_kv_keys().
+ROOT_KEY_1 = bytes.fromhex("828078683A523A9810F40C127066DCBA")
+ROOT_KEY_2 = bytes.fromhex("66621A78F8609C8A269A04AED85C1EC8")
+
+# The same roots for development kits, recovered from XDK Recovery images:
+# ROOT_KEY_1 = bytes.fromhex("B9E09E68048391B332457ADA436B80AD")
+# ROOT_KEY_2 = bytes.fromhex("925D296EB0610BF1D6293BC8C7D932BC")
 
 SBOX = bytes([
 	0xB0, 0x3D, 0x9B, 0x70, 0xF3, 0xC7, 0x80, 0x60,
@@ -142,11 +154,17 @@ def UsbdSecXSM3AuthenticationCrypt(key: BinLike, data: BinLike, mode: CryptMode)
 	return b""
 
 def UsbdSecXSM3AuthenticationMac(key: BinLike, salt: BinLike | None, data: BinLike) -> tuple[BinLike, BinLike]:
-	temp = b""
+	# the kernel runs ExCryptDesParity(key, 0x10, ...) over the key, which consumes exactly
+	# 16 bytes - callers pass longer buffers, e.g. the 20 byte challenge init SHA-1 hash
+	key = bytes(key)[:0x10]
+	temp = bytes(8)
 
 	c = XeCryptDes(key[:8])
 	if salt:
-		v0 = int.from_bytes(salt, "big", signed=False)
+		# the salt is the FIRST 8 bytes of the caller's buffer, and is incremented in place
+		# so that consecutive MACs over the same buffer use successive values - callers are
+		# responsible for writing the returned salt back
+		v0 = int.from_bytes(bytes(salt)[:8], "big", signed=False)
 		v0 += 1
 		salt = (v0 & 0xFFFFFFFFFFFFFFFF).to_bytes(8, "big", signed=False)
 		temp = c.encrypt(salt)
@@ -161,7 +179,7 @@ def UsbdSecXSM3AuthenticationMac(key: BinLike, salt: BinLike | None, data: BinLi
 	temp = bytearray(temp)
 	temp[0] ^= 0x80
 
-	c = XeCryptDes3((key * 2)[:0x18])
+	c = XeCryptDes3(key + key[:8])
 	return (salt, c.encrypt(temp))
 
 def UsbdSecXSMAuthenticationAcr(key: BinLike, cert: BinLike, data: BinLike) -> BinLike:
@@ -180,6 +198,20 @@ def UsbdSecXSMAuthenticationAcr(key: BinLike, cert: BinLike, data: BinLike) -> B
 
 	return output
 
+def xsm3_generate_kv_keys(console_id: BinLike) -> tuple[BinLike, BinLike]:
+	"""Derive a console's wired controller keys (key vault slots 0x23/0x24) from its ID.
+
+	Every console's 0x23/0x24 keys are the SHA-1 hash of its 8 byte console ID encrypted
+	under a pair of root keys, so they can be generated on the fly for any console rather
+	than dumped out of that console's key vault.
+	"""
+	assert len(console_id) == 8, "Invalid console ID!"
+
+	console_id_hash = XeCryptSha(console_id)
+	key_1 = UsbdSecXSM3AuthenticationCrypt(ROOT_KEY_1, console_id_hash[:0x10], CryptMode.ENCRYPT)
+	key_2 = UsbdSecXSM3AuthenticationCrypt(ROOT_KEY_2, console_id_hash[4:4 + 0x10], CryptMode.ENCRYPT)
+	return (key_1, key_2)
+
 class XSM3State:
 	xsm3_identification_data: BinLike = None
 	xsm3_random_console_data: BinLike = None
@@ -189,6 +221,10 @@ class XSM3State:
 
 	xsm3_random_console_data_enc: BinLike = None
 	xsm3_random_console_data_swap_enc: BinLike = None
+
+	# per-console keys from key vault slots 0x23/0x24, derived on demand
+	xsm3_kv_2des_key_1: BinLike = None
+	xsm3_kv_2des_key_2: BinLike = None
 
 	def __init__(self, xsm3_ident_packet: BinLike):
 		self.reset()
@@ -210,6 +246,16 @@ class XSM3State:
 
 		self.xsm3_random_console_data_enc = None
 		self.xsm3_random_console_data_swap_enc = None
+
+		self.xsm3_kv_2des_key_1 = None
+		self.xsm3_kv_2des_key_2 = None
+
+	def xsm3_import_kv_keys(self, key_1: BinLike, key_2: BinLike) -> None:
+		"""Use per-console keys dumped from a key vault instead of deriving them."""
+		assert len(key_1) == 0x10 and len(key_2) == 0x10, "Invalid KV key!"
+
+		self.xsm3_kv_2des_key_1 = bytes(key_1)
+		self.xsm3_kv_2des_key_2 = bytes(key_2)
 
 	def xsm3_set_identification_data(self, ident_packet: BinLike) -> None:
 		assert len(ident_packet) == 0x1D, "Invalid identification packet!"
@@ -242,11 +288,16 @@ class XSM3State:
 			print("[ MAC failed when validating challenge init! ]")
 			return
 
+		# if we weren't handed the per-console keys, derive them from the console ID
+		if self.xsm3_kv_2des_key_1 is None or self.xsm3_kv_2des_key_2 is None:
+			(self.xsm3_kv_2des_key_1, self.xsm3_kv_2des_key_2) = xsm3_generate_kv_keys(self.xsm3_console_id)
+
 		# the random value is swapped at an 8 byte boundary
 		xsm3_random_console_data_swap = self.xsm3_random_console_data[8:8 + 8] + self.xsm3_random_console_data[:8]
 		# and then encrypted - the regular value encrypted with key 1, the swapped value encrypted with key 2
-		self.xsm3_random_console_data_enc = UsbdSecXSM3AuthenticationCrypt(STATIC_KEY_1, self.xsm3_random_console_data, CryptMode.ENCRYPT)
-		self.xsm3_random_console_data_swap_enc = UsbdSecXSM3AuthenticationCrypt(STATIC_KEY_2, xsm3_random_console_data_swap, CryptMode.ENCRYPT)
+		# note these are the per-console 0x23/0x24 keys, NOT the global 0x1D/0x1E keys above
+		self.xsm3_random_console_data_enc = UsbdSecXSM3AuthenticationCrypt(self.xsm3_kv_2des_key_1, self.xsm3_random_console_data, CryptMode.ENCRYPT)
+		self.xsm3_random_console_data_swap_enc = UsbdSecXSM3AuthenticationCrypt(self.xsm3_kv_2des_key_2, xsm3_random_console_data_swap, CryptMode.ENCRYPT)
 
 		# generate random data
 		self.xsm3_random_controller_data = randbytes(0x10)
@@ -291,6 +342,8 @@ class XSM3State:
 		self.xsm3_random_console_data[8:8 + 8] = xsm3_decryption_buffer
 
 		(salt, xsm3_incoming_packet_mac) = UsbdSecXSM3AuthenticationMac(self.xsm3_challenge_init_hash, self.xsm3_random_console_data, challenge_packet[5:5 + 8])
+		# the kernel increments the salt in place, so the outgoing MAC below sees this value
+		self.xsm3_random_console_data[:8] = salt
 
 		if xsm3_incoming_packet_mac != challenge_packet[5 + 8:5 + 8 + 8]:
 			print("[ MAC failed when validating challenge verify! ]")
@@ -303,34 +356,62 @@ class XSM3State:
 		xsm3_challenge_response[4] = 0x10  # packet length
 
 		# calculate the ACR value and encrypt it into the outgoing packet using the encrypted random
-		xsm3_decryption_buffer = UsbdSecXSMAuthenticationAcr(self.xsm3_identification_data, self.xsm3_console_id, self.xsm3_random_console_data[8:])
+		# the key is the decrypted random, the input is the identification data - not the reverse
+		xsm3_decryption_buffer = UsbdSecXSMAuthenticationAcr(self.xsm3_random_console_data[8:], self.xsm3_console_id, self.xsm3_identification_data)
 		xsm3_challenge_response[5:5 + 8] = UsbdSecXSM3AuthenticationCrypt(self.xsm3_random_console_data_enc, xsm3_decryption_buffer[:8], CryptMode.ENCRYPT)
 		# calculate the MAC of the encrypted packet and append it to the end
 		(salt, xsm3_challenge_response[5 + 8:5 + 8 + 8]) = UsbdSecXSM3AuthenticationMac(self.xsm3_random_console_data_swap_enc, self.xsm3_random_console_data, xsm3_challenge_response[5:5 + 8])
+		self.xsm3_random_console_data[:8] = salt
 		# calculate the checksum for the response packet
 		xsm3_challenge_response[5 + 0x10] = xsm3_calculate_checksum(xsm3_challenge_response)
 
 		return xsm3_challenge_response[:5 + xsm3_challenge_response[4] + 1]
 
 def main() -> int:
-	global STATIC_KEY_1, STATIC_KEY_2, DYNAMIC_KEY_1, DYNAMIC_KEY_2
+	# The identification, challenge and response packets above were captured from a real
+	# wired controller talking to a retail console. Replaying them exercises the whole
+	# implementation, including the per-console keys derived from the console ID - no key
+	# vault dump required.
+	console_id = bytes.fromhex("086D40C2C6808182")
 
-	kv = XECRYPT_KEYVAULT.from_buffer_copy(read_file("KV/banned.bin"))
+	(key_1, key_2) = xsm3_generate_kv_keys(console_id)
+	assert key_1 == bytes.fromhex("F19D6F2CB1EE6AC4635336A54C11007D"), "0x23 key mismatch!"
+	assert key_2 == bytes.fromhex("C45582C89FC3DAD28C1FBBCF3D049B6F"), "0x24 key mismatch!"
+	print(f"derived 0x23 key : {key_1.hex().upper()}")
+	print(f"derived 0x24 key : {key_2.hex().upper()}")
 
-	STATIC_KEY_1 = bytes(kv.global_dev_2des_key_1)
-	STATIC_KEY_2 = bytes(kv.global_dev_2des_key_2)
-	DYNAMIC_KEY_1 = bytes.fromhex("F19D6F2CB1EE6AC4635336A54C11007D")
-	DYNAMIC_KEY_2 = bytes.fromhex("C45582C89FC3DAD28C1FBBCF3D049B6F")
+	with XSM3State(UsbdSecXSM3GetIdentificationProtocolData) as xsm3:
+		challenge_response = xsm3.xsm3_do_challenge_init(UsbdSecXSM3SetChallengeProtocolData)
+		assert challenge_response is not None, "Challenge init failed!"
+		assert xsm3.xsm3_console_id == console_id, "Console ID mismatch!"
+		assert xsm3.xsm3_kv_2des_key_1 == key_1 and xsm3.xsm3_kv_2des_key_2 == key_2
 
-	# cid = bytearray.fromhex("086D40C2C6")
-	# cid += bytearray.fromhex("808182")
-	# hcid = XeCryptSha(cid)[:0x10]
+		# our response carries a freshly generated controller random, so it can't be byte
+		# identical to the capture - but decrypting the captured response with the same key
+		# recovers the real controller's random value, and the console half of that only
+		# round-trips if the first derived key is correct
+		captured = UsbdSecXSM3GetResponseChallengeProtocolData
+		plain = UsbdSecXSM3AuthenticationCrypt(xsm3.xsm3_random_console_data_enc, captured[5:5 + 0x20], CryptMode.DECRYPT)
+		console_random = UsbdSecXSM3AuthenticationCrypt(STATIC_KEY_1, UsbdSecXSM3SetChallengeProtocolData[5:5 + 0x18], CryptMode.DECRYPT)[:0x10]
+		assert plain[0x10:0x20] == console_random, "Console random did not round-trip!"
 
-	with XSM3State(xsm3_id_data_ms_controller) as xsm3:
-		xsm3_challenge_response = xsm3.xsm3_do_challenge_init(UsbdSecXSM3SetChallengeProtocolData)
-		print(f"0x{len(xsm3_challenge_response):X}")
-		xsm3_challenge_response = xsm3.xsm3_do_challenge_verify(UsbdSecXSM3GetResponseVerifyProtocolData1)
-		# print(f"0x{len(xsm3_challenge_response):X}")
+		# and the captured ACR only reproduces if the second derived key, the parve cipher
+		# and the chain-and-sum MAC are all correct
+		(salt, captured_mac) = UsbdSecXSM3AuthenticationMac(xsm3.xsm3_random_console_data_swap_enc, None, captured[5:5 + 0x20])
+		assert UsbdSecXSMAuthenticationAcr(captured_mac, xsm3.xsm3_console_id, xsm3.xsm3_identification_data) == captured[5 + 0x20:5 + 0x28], "Challenge init ACR mismatch!"
+		print("challenge init   : reproduces the captured response")
+
+		# put the real controller's random value into the state so the verify stage can be
+		# replayed against the captured packets too
+		xsm3.xsm3_random_controller_data = plain[:0x10]
+		xsm3.xsm3_challenge_init_hash = XeCryptSha(plain)
+		xsm3.xsm3_random_console_data = bytearray(console_random)
+		xsm3.xsm3_random_console_data[:4] = plain[0xC:0x10]
+		xsm3.xsm3_random_console_data[4:4 + 4] = console_random[0xC:0x10]
+
+		verify_response = xsm3.xsm3_do_challenge_verify(UsbdSecXSM3SetVerifyProtocolData1)
+		assert verify_response == UsbdSecXSM3GetResponseVerifyProtocolData1, "Verify response mismatch!"
+		print("challenge verify : reproduces the captured response")
 
 	return 0
 
