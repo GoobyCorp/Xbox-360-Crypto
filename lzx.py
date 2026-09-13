@@ -223,8 +223,8 @@ class t_decoder_context(LittleEndianStructure):
 		("dec_main_tree_left_right", SHORT * (MAX_MAIN_TREE_ELEMENTS * 4)),
 		("dec_secondary_length_tree_left_right", SHORT * (NUM_SECONDARY_LENGTHS * 4)),
 		# NOTE: dec_start_input_pos / dec_real_end_input_pos exist only in the
-		# fixed codec; the stock binaries in bin/LZX predate them.  See
-		# t_decoder_context_legacy and LZXDecompression.layout_matches().
+		# fixed codec.  bin/LZX/Windows is such a build; bin/LZX/Linux is not
+		# yet.  See t_decoder_context_legacy and layout_matches().
 		("dec_start_input_pos", PBYTE),
 		("dec_input_curpos", PBYTE),
 		("dec_end_input_pos", PBYTE),
@@ -266,8 +266,8 @@ class t_decoder_context(LittleEndianStructure):
 	def dec_decoder_state(self, value: decoder_state | int) -> None:
 		self._dec_decoder_state = int(value)
 
-# Layout of t_decoder_context as the stock bin/LZX binaries were built, i.e.
-# without the two input-bound pointers the fixed codec added.
+# Layout of t_decoder_context before the fix, i.e. without the two
+# input-bound pointers.  bin/LZX/Linux is still built this way.
 class t_decoder_context_legacy(LittleEndianStructure):
 	_pack_ = 8
 	_fields_ = [
@@ -626,9 +626,9 @@ class LZXDecompression:
 		"""Whether t_decoder_context above matches the loaded library.
 
 		Only matters if you want to read decoder internals; the wrapper itself
-		never needs them.  The stock bin/LZX binaries predate two pointers that
-		the fixed codec added, so they match t_decoder_context_legacy instead.
-		Dereferencing the wrong one used to abort construction outright."""
+		never needs them.  A library built before the codec fixes lacks two
+		pointers and matches t_decoder_context_legacy instead.  Dereferencing
+		the wrong one used to abort construction outright."""
 		ldi = LDI_CONTEXT.from_address(self.ctx.value)
 		try:
 			return (addressof(ldi.decoder_context.contents.dec_malloc.contents)
@@ -742,11 +742,15 @@ def main() -> int:
 	except AssertionError as e:
 		print(f"delta          FAILED: {e}")
 		print()
-		print("The LZX-DELTA *compression* path does not work with the binaries in")
-		print("bin/LZX: inserting a dictionary suppresses the group header that the")
-		print("decoder always reads, so the stream they emit cannot be decoded.")
-		print("Decompressing delta streams produced elsewhere is unaffected.")
-		print("Point LZX_COMPRESSION_DLL / LZX_DECOMPRESSION_DLL at a fixed build.")
+		print(f"  compression library: {COMPRESSION_LIBRARY_PATH}")
+		print(f"  decompression library: {DECOMPRESSION_LIBRARY_PATH}")
+		print()
+		print("This library cannot produce LZX-DELTA streams: inserting a dictionary")
+		print("suppresses the group header that the decoder always reads, so what it")
+		print("emits cannot be decoded.  Decompressing delta streams produced")
+		print("elsewhere is unaffected, which is why only compression shows it.")
+		print("Rebuild from the LZX sources, or set LZX_COMPRESSION_DLL /")
+		print("LZX_DECOMPRESSION_DLL to point at a build that has the fix.")
 		return 1
 
 	print(f"delta          0x{len(patched):X} -> 0x{hdr.CompressedSize:X} against a 0x{len(base):X} dictionary  OK")

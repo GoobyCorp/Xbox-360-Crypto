@@ -2,9 +2,41 @@
 
 A collection of tools I've written for the Xbox 360
 
-Most things work across Windows, macOS, and Linux but anything that requires packing or unpacking the CE/SE/5BL will only work on Windows.
+Most things work across Windows, macOS, and Linux but anything that requires packing or unpacking the CE/SE/5BL needs the native LZX libraries in [bin/LZX](bin/LZX), which are built for Windows and Linux - see [LZX libraries](#lzx-libraries).
 
 This tool suite is BYOK (Bring Your Own Keys), you can verify your keys with [verify_keys.py](verify_keys.py)
+
+## LZX libraries
+
+The CE/SE/5BL images are LZX compressed, and the CF/CG patch stages use LZX-DELTA, where
+the previous version of the data is preloaded into the compression window as a dictionary.
+[lzx.py](lzx.py) is a ctypes wrapper around the native libraries in [bin/LZX](bin/LZX).
+
+**Both are builds with the codec bugs fixed.** The originals could not produce LZX-DELTA
+streams at all: inserting a dictionary suppressed the group header that the decoder always
+reads, so `LDIDecompress` rejected everything the compressor emitted. They also dropped the
+first 257 bytes of every window wrap when decoding verbatim blocks, and left compressed output
+dependent on uninitialised memory.
+
+Windows is built with MSVC, Linux with GCC 14 (`liblzxc.so` compression, `liblzxd.so`
+decompression). Both pass the same test suite, and the encoder produces byte-identical output
+either way.
+
+Either library can be overridden without touching the tree:
+
+```
+LZX_COMPRESSION_DLL=/path/to/LZXCompression.dll \
+LZX_DECOMPRESSION_DLL=/path/to/LZXDecompression.dll python lzx.py
+```
+
+Running `python lzx.py` is a self-test: it round trips a payload and an LZX-DELTA block, and
+tells you which library it loaded if the delta path fails. Pass a file to use it as the payload.
+
+### [lzx.py](lzx.py)
+A ctypes wrapper around the LZX and LZX-DELTA libraries, used by
+[build_lib.py](build_lib.py) to pack and unpack the CE/SE. `LZXCompression` and
+`LZXDecompression` both take a `window_size` (the CE/SE streams use 0x20000, the CG patch
+stages 0x8000) and expose `set_window_data()` for the LZX-DELTA dictionary.
 
 ### [XeCrypt.py](XeCrypt.py)
 A library that includes most of the Xbox 360's cryptographic library.
