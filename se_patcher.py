@@ -21,9 +21,11 @@ def patch_rehash_sign_se(sd_data: bytes | bytearray, se_data: bytes | bytearray,
 	if se_patch_data is not None:
 		se_data = apply_patches(se_data, se_patch_data)
 
-	# compress SE
+	# compress SE - compress_se() already supplies the full 0x30 header
+	# (total size at 0xC, uncompressed size at 0x28, stream at 0x30).
+	# Prepending another 0x20 here pushed the stream out to 0x50 and left
+	# 0x28 zeroed, which no bootloader will accept.
 	se_data = bytearray(compress_se(se_data))
-	se_data = bytearray(0x20) + se_data
 	# magic, build, QFE, flags, and entry point
 	pack_into(">2s 3H I", se_data, 0, b"SE", 17559, 0x8000, 0, 0)
 	# get length of SE without padding
@@ -79,8 +81,10 @@ def main() -> int:
 	pack_into("16x", se_data, 0x10)
 
 	# write the SD and SE
-	Path(f"xeBuild_1.21/Builds/17559 - RGL/bootloaders/rgl/{con_rev.lower()}bl/sd_17489.bin").write_bytes(sd_data)
-	Path(f"xeBuild_1.21/Builds/17559 - RGL/bootloaders/rgl/{con_rev.lower()}bl/se_17559.bin").write_bytes(se_data)
+	out_dir = Path(f"xeBuild_1.21/Builds/17559 - RGL/bootloaders/rgl/{con_rev.lower()}bl")
+	out_dir.mkdir(parents=True, exist_ok=True)
+	(out_dir / "sd_17489.bin").write_bytes(sd_data)
+	(out_dir / "se_17559.bin").write_bytes(se_data)
 	# output XeBuild checksums
 	print(f"[{con_rev.lower()}bl]")
 	print(f"bootloaders/devkit/jasperbl_rgl/{con_rev.lower()}bl/sd_17489.bin,{crc32(sd_data[:sd_len_nopad]):08x}")

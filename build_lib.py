@@ -334,12 +334,17 @@ def decompress_se(data: Union[bytes, bytearray], skip_header: bool = True) -> by
 		return lzx.decompress_continuous(data)
 
 def compress_se(data: Union[bytes, bytearray], include_header: bool = True) -> bytes:
+	"""Compress an SE payload.  With include_header the result carries the
+	full 0x30 SE header, with the total size at 0xC and the uncompressed
+	size at 0x28; the LZX stream starts at 0x30."""
+	uncompressed_size = len(data)
 	with LZXCompression() as lzx:
 		data = lzx.compress_continuous(data)
 		if include_header:
 			data = bytearray(0x30) + data
 			pack_into(">I", data, 0xC, len(data))
-			pack_into(">I", data, 0x28, 0x280000)
+			# was hardcoded to 0x280000, which is wrong for any other payload
+			pack_into(">I", data, 0x28, uncompressed_size)
 		return data
 
 def sign_sd_4bl(key: Union[XeCryptRsaKey, bytes, bytearray], salt: Union[bytes, bytearray], data: Union[bytes, bytearray]) -> bytearray:

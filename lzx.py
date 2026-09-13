@@ -5,6 +5,8 @@
 
 from ctypes import *
 from io import BytesIO
+from os import environ
+import sys
 from pathlib import Path
 from typing import TypeVar
 from platform import system
@@ -19,13 +21,25 @@ if calcsize("P") * 8 != 64:
 	exit(0)
 
 # make sure it's Windows or Linux
+# Resolve the libraries relative to this file rather than the working
+# directory, so importing lzx from elsewhere still works.  Either path can be
+# overridden with LZX_COMPRESSION_DLL / LZX_DECOMPRESSION_DLL, which is how you
+# point this at a locally built (fixed) LZX instead of the shipped binaries.
+_HERE = Path(__file__).resolve().parent
+
+def _library_path(env_var: str, relative: str) -> str:
+	override = environ.get(env_var)
+	if override:
+		return str(Path(override).expanduser().resolve())
+	return str((_HERE / relative).resolve())
+
 os = system()
 if os == "Windows":
-	COMPRESSION_LIBRARY_PATH = str(Path("bin/LZX/Windows/LZXCompression.dll").absolute())
-	DECOMPRESSION_LIBRARY_PATH = str(Path("bin/LZX/Windows/LZXDecompression.dll").absolute())
+	COMPRESSION_LIBRARY_PATH = _library_path("LZX_COMPRESSION_DLL", "bin/LZX/Windows/LZXCompression.dll")
+	DECOMPRESSION_LIBRARY_PATH = _library_path("LZX_DECOMPRESSION_DLL", "bin/LZX/Windows/LZXDecompression.dll")
 elif os == "Linux":
-	COMPRESSION_LIBRARY_PATH = str(Path("bin/LZX/Linux/liblzxc.so"))
-	DECOMPRESSION_LIBRARY_PATH = str(Path("bin/LZX/Linux/liblzxd.so"))
+	COMPRESSION_LIBRARY_PATH = _library_path("LZX_COMPRESSION_DLL", "bin/LZX/Linux/liblzxc.so")
+	DECOMPRESSION_LIBRARY_PATH = _library_path("LZX_DECOMPRESSION_DLL", "bin/LZX/Linux/liblzxd.so")
 else:
 	print("This only works on Windows or Linux!")
 	exit(0)
@@ -208,8 +222,13 @@ class t_decoder_context(LittleEndianStructure):
 		("dec_aligned_len", BYTE * ALIGNED_NUM_ELEMENTS),
 		("dec_main_tree_left_right", SHORT * (MAX_MAIN_TREE_ELEMENTS * 4)),
 		("dec_secondary_length_tree_left_right", SHORT * (NUM_SECONDARY_LENGTHS * 4)),
+		# NOTE: dec_start_input_pos / dec_real_end_input_pos exist only in the
+		# fixed codec; the stock binaries in bin/LZX predate them.  See
+		# t_decoder_context_legacy and LZXDecompression.layout_matches().
+		("dec_start_input_pos", PBYTE),
 		("dec_input_curpos", PBYTE),
 		("dec_end_input_pos", PBYTE),
+		("dec_real_end_input_pos", PBYTE),
 		("dec_output_buffer", PBYTE),
 		("dec_position_at_start", LONG),
 		("dec_main_tree_prev_len", BYTE * MAX_MAIN_TREE_ELEMENTS),
@@ -247,6 +266,15 @@ class t_decoder_context(LittleEndianStructure):
 	def dec_decoder_state(self, value: decoder_state | int) -> None:
 		self._dec_decoder_state = int(value)
 
+# Layout of t_decoder_context as the stock bin/LZX binaries were built, i.e.
+# without the two input-bound pointers the fixed codec added.
+class t_decoder_context_legacy(LittleEndianStructure):
+	_pack_ = 8
+	_fields_ = [
+		(name, typ) for (name, typ) in t_decoder_context._fields_
+		if name not in ("dec_start_input_pos", "dec_real_end_input_pos")
+	]
+
 class LCI_CONTEXT(LittleEndianStructure):
 	_fields_ = [
 		("signature", ULONG),
@@ -277,15 +305,19 @@ class LZXBOX_BLOCK(BigEndianStructure):
 class LZXCompression:
 	dll: CDLL = None
 	chunk_size: int = None
+	window_size: int = None
+	dst_buffer_min: int = None
 	ctx: LCI_CONTEXT_HANDLE = None
 	callback: FNCALLBACK = None
 
 	compressed_stream: BytesIO = None
 
-	def __init__(self, chunk_size: int = LZX_CHUNK_SIZE):
+	def __init__(self, chunk_size: int = LZX_CHUNK_SIZE, window_size: int = LZX_WINDOW_SIZE, second_partition_size: int = LZX_CHUNK_SIZE):
 		self.compressed_stream = BytesIO()
 
 		self.chunk_size = chunk_size
+		self.window_size = window_size
+		self.second_partition_size = second_partition_size
 
 		self.dll = CDLL(COMPRESSION_LIBRARY_PATH)
 
@@ -402,47 +434,41 @@ class LZXCompression:
 		self.ctx = LCI_CONTEXT_HANDLE()
 
 		lzx = LZXCOMPRESS()
-		lzx.WindowSize = LZX_WINDOW_SIZE
-		lzx.SecondPartitionSize = 32 * 1024
+		lzx.WindowSize = self.window_size
+		lzx.SecondPartitionSize = self.second_partition_size
 
-		pcbDataBlockMax = self.chunk_size
-		pcbDstBufferMin = 0
+		pcbDataBlockMax = ULONG(self.chunk_size)
+		# the DLL reports the smallest output buffer it will accept
+		pcbDstBufferMin = ULONG(0)
 
 		# need to prevent it from be deallocated so we use it as a class variable
 		self.callback = FNCALLBACK(self.callback_func)
 
 		ret = self.dll.LCICreateCompression(
-			pointer(ULONG(pcbDataBlockMax)),
+			pointer(pcbDataBlockMax),
 			pointer(lzx),
-			pointer(ULONG(pcbDstBufferMin)),
+			pointer(pcbDstBufferMin),
 			pointer(self.ctx),
 			self.callback,
 			NULLPTR
 		)
 		assert ret == 0, f"LCICreateCompression failed with code 0x{ret:X}!"
 
+		self.dst_buffer_min = pcbDstBufferMin.value
+
 		lci = LCI_CONTEXT.from_address(self.ctx.value)
 
-		a_addr_0 = addressof(lci.pfnAlloc.contents)
-		f_addr_0 = addressof(lci.pfnFree.contents)
-
-		a_addr_1 = addressof(lci.encoder_context.contents.enc_malloc.contents)
-		f_addr_1 = addressof(lci.encoder_context.contents.enc_free.contents)
-
-		b = 1
-		b &= lci.signature == LCI_SIGNATURE
-		b &= a_addr_0 == a_addr_1
-		b &= f_addr_0 == f_addr_1
-		b = bool(b)
-
-		assert b, f"LCI t_encoder_context integrity failed!"
+		# LCI_CONTEXT itself is stable across builds, so these are hard checks.
+		assert lci.signature == LCI_SIGNATURE, "LCI signature mismatch!"
+		assert bool(lci.encoder_context), "LCI encoder_context is NULL!"
 
 		return ret
 
 	def reset(self) -> int:
 		self.compressed_stream.close()
 		self.compressed_stream = BytesIO()
-		return self.dll.LDIResetCompression(self.ctx)
+		# was LDIResetCompression, which does not exist in the compression DLL
+		return self.dll.LCIResetCompression(self.ctx)
 
 	def destroy(self) -> int:
 		return self.dll.LCIDestroyCompression(self.ctx)
@@ -462,11 +488,25 @@ class LZXCompression:
 
 		return 0
 
+	def set_window_data(self, data: BinLike) -> int:
+		"""Preload the window with an LZX-DELTA dictionary (the old version of
+		the data).  Must be called before any compress()."""
+		buf = (c_ubyte * len(data))()
+		memmove(buf, bytes(data), len(data))
+		ret = self.dll.LCISetWindowData(self.ctx, cast(buf, PBYTE), ULONG(len(data)))
+		assert ret == 0, f"LCISetWindowData failed with code 0x{ret:X}!"
+		return ret
+
 	def compress(self, data: BinLike) -> bytes:
 		in_data = (c_ubyte * len(data))()
-		memmove(in_data, data, len(data))
-		out_size = c_uint32()
-		ret = self.dll.LCICompress(self.ctx, pointer(in_data), LONG(len(data)), NULLPTR, LONG(len(data) + MAX_GROWTH), pointer(out_size))
+		memmove(in_data, bytes(data), len(data))
+		# LCICompress refuses cbDst < cbDataBlockMax + MAX_GROWTH, so it has to
+		# be sized off the promised block size, not off this chunk - otherwise
+		# a short final chunk is rejected with MCI_ERROR_BAD_PARAMETERS.
+		dst_size = self.dst_buffer_min or (self.chunk_size + MAX_GROWTH)
+		out_data = (c_ubyte * dst_size)()
+		out_size = ULONG()
+		ret = self.dll.LCICompress(self.ctx, pointer(in_data), LONG(len(data)), pointer(out_data), LONG(dst_size), pointer(out_size))
 		assert ret == 0, f"LCICompress failed with code 0x{ret:X}!"
 		return self.compressed_stream.getvalue()
 
@@ -489,12 +529,12 @@ class LZXCompression:
 class LZXDecompression:
 	dll: CDLL = None
 	chunk_size: int = None
+	window_size: int = None
 	ctx: LDI_CONTEXT_HANDLE = None
 
-	def __init__(self, chunk_size: int = LZX_CHUNK_SIZE):
-		# self.reset()
-
+	def __init__(self, chunk_size: int = LZX_CHUNK_SIZE, window_size: int = LZX_WINDOW_SIZE):
 		self.chunk_size = chunk_size
+		self.window_size = window_size
 
 		self.dll = CDLL(DECOMPRESSION_LIBRARY_PATH)
 
@@ -560,7 +600,7 @@ class LZXDecompression:
 		self.ctx = LDI_CONTEXT_HANDLE()
 
 		lzx = LZXDECOMPRESS()
-		lzx.WindowSize = LZX_WINDOW_SIZE
+		lzx.WindowSize = self.window_size
 		lzx.fCPUtype = 1
 
 		pcbDataBlockMax = self.chunk_size
@@ -576,21 +616,25 @@ class LZXDecompression:
 
 		ldi = LDI_CONTEXT.from_address(self.ctx.value)
 
-		a_addr_0 = addressof(ldi.pfnAlloc.contents)
-		f_addr_0 = addressof(ldi.pfnFree.contents)
-
-		a_addr_1 = addressof(ldi.decoder_context.contents.dec_malloc.contents)
-		f_addr_1 = addressof(ldi.decoder_context.contents.dec_free.contents)
-
-		b = 1
-		b &= ldi.signature == LDI_SIGNATURE
-		b &= a_addr_0 == a_addr_1
-		b &= f_addr_0 == f_addr_1
-		b = bool(b)
-
-		assert b, f"LDI t_decoder_context integrity failed!"
+		# LDI_CONTEXT itself is stable across builds, so these are hard checks.
+		assert ldi.signature == LDI_SIGNATURE, "LDI signature mismatch!"
+		assert bool(ldi.decoder_context), "LDI decoder_context is NULL!"
 
 		return ret
+
+	def layout_matches(self) -> bool:
+		"""Whether t_decoder_context above matches the loaded library.
+
+		Only matters if you want to read decoder internals; the wrapper itself
+		never needs them.  The stock bin/LZX binaries predate two pointers that
+		the fixed codec added, so they match t_decoder_context_legacy instead.
+		Dereferencing the wrong one used to abort construction outright."""
+		ldi = LDI_CONTEXT.from_address(self.ctx.value)
+		try:
+			return (addressof(ldi.decoder_context.contents.dec_malloc.contents)
+				== addressof(ldi.pfnAlloc.contents))
+		except ValueError:
+			return False
 
 	def reset(self) -> int:
 		return self.dll.LDIResetDecompression(self.ctx)
@@ -598,18 +642,38 @@ class LZXDecompression:
 	def destroy(self) -> int:
 		return self.dll.LDIDestroyDecompression(self.ctx)
 
-	def delta_decompress(self, base_data: BinLike, patch_data: BinLike) -> bytes:
-		pass
+	def set_window_data(self, data: BinLike) -> int:
+		"""Preload the window with an LZX-DELTA dictionary.
+
+		The library places it at the END of the window, so its length is part
+		of the contract with whoever produced the stream."""
+		if len(data) > self.window_size:
+			raise ValueError(f"dictionary (0x{len(data):X}) is larger than the window (0x{self.window_size:X})")
+		buf = (c_ubyte * len(data))()
+		memmove(buf, bytes(data), len(data))
+		ret = self.dll.LDISetWindowData(self.ctx, cast(buf, PBYTE), ULONG(len(data)))
+		assert ret == 0, f"LDISetWindowData failed with code 0x{ret:X}!"
+		return ret
+
+	def delta_decompress(self, base_data: BinLike, patch_data: BinLike, size: int) -> bytes:
+		"""Decode one LZX-DELTA block.
+
+		base_data is the OLD contents of the region being rewritten, patch_data
+		the compressed bytes, size the decoded length.  The context window_size
+		must match the producer (0x8000 for the Xbox 360 CG patch stages)."""
+		self.set_window_data(base_data)
+		return self.decompress(patch_data, size)
 
 	def decompress(self, data: BinLike, size: int) -> bytes:
 		in_data = (c_ubyte * len(data))()
-		memmove(in_data, data, len(data))
+		memmove(in_data, bytes(data), len(data))
 		out_data = (c_ubyte * size)()
 		out_size = ULONG(size)
 		ret = self.dll.LDIDecompress(self.ctx, pointer(in_data), LONG(len(data)), pointer(out_data), pointer(out_size))
 		assert ret == 0, f"LDIDecompress failed with code 0x{ret:X}!"
-		resize(out_data, out_size.value)
-		return bytes(out_data)
+		# was ctypes.resize(), which cannot shrink an array and would not have
+		# truncated bytes(out_data) even if it could
+		return bytes(bytearray(out_data)[:out_size.value])
 
 	def decompress_chunk(self, data: BinLike) -> bytes:
 		hdr = LZXBOX_BLOCK.from_buffer_copy(data[:sizeof(LZXBOX_BLOCK)])
@@ -618,10 +682,21 @@ class LZXDecompression:
 		return self.decompress(data, hdr.UncompressedSize)
 
 	def decompress_continuous(self, data: BinLike) -> bytes:
+		"""Decode a [u16 BE compressed][u16 BE uncompressed][data] stream through
+		a single context, as the SE/CE bootloaders store it.
+
+		A real image is padded past the last block, so stop on a short or empty
+		header instead of reading into the padding."""
 		size = len(data)
-		with BytesIO(data) as rbio, BytesIO() as wbio:
-			while (pos := rbio.tell()) < size:
-				hdr = LZXBOX_BLOCK.from_buffer_copy(rbio.read(sizeof(LZXBOX_BLOCK)))
+		hdr_size = sizeof(LZXBOX_BLOCK)
+		with BytesIO(bytes(data)) as rbio, BytesIO() as wbio:
+			while (pos := rbio.tell()) + hdr_size <= size:
+				hdr = LZXBOX_BLOCK.from_buffer_copy(rbio.read(hdr_size))
+				# an all-zero header terminates the stream
+				if hdr.CompressedSize == 0:
+					break
+				if rbio.tell() + hdr.CompressedSize > size:
+					raise ValueError(f"block at 0x{pos:X} runs past the end of the stream")
 				block = rbio.read(hdr.CompressedSize)
 				block = self.decompress(block, hdr.UncompressedSize)
 				assert len(block) == hdr.UncompressedSize, "Decompressed size mismatch!"
@@ -629,16 +704,52 @@ class LZXDecompression:
 			return wbio.getvalue()
 
 def main() -> int:
-	pr = Path("data/bootloader/uncompressed.bin")
+	"""Smoke test: round trip a generated payload, then an LZX-DELTA block.
 
-	with LZXCompression() as lzxc, pr.open("rb") as fr:
-		uncomp_data = fr.read()
+	Pass a file to use it instead of the generated payload, e.g. an SE
+	bootloader payload."""
+	if len(sys.argv) > 1:
+		uncomp_data = Path(sys.argv[1]).read_bytes()
+	else:
+		# deliberately not a multiple of the chunk size, so the short final
+		# chunk gets exercised
+		uncomp_data = (b"the quick brown fox jumps over the lazy dog " * 4096)[:150_001]
+
+	with LZXCompression() as lzxc:
 		comp_data = lzxc.compress_continuous(uncomp_data)
 
-	with LZXDecompression() as lzxd, BytesIO(comp_data) as fr:
-		decomp_data = lzxd.decompress_continuous(fr.read())
+	with LZXDecompression() as lzxd:
+		decomp_data = lzxd.decompress_continuous(comp_data)
 
-	assert uncomp_data == decomp_data, "Files aren't the same!"
+	assert uncomp_data == decomp_data, "Round trip mismatch!"
+	print(f"round trip     0x{len(uncomp_data):X} -> 0x{len(comp_data):X} -> 0x{len(decomp_data):X}  OK")
+
+	# LZX-DELTA: compress a modified block against the original as dictionary
+	base = uncomp_data[:0x4000]
+	patched = bytearray(base); patched[0x1234:0x1234 + 8] = b"PATCHED!"
+	patched = bytes(patched)
+
+	with LZXCompression(window_size=0x8000) as lzxc:
+		lzxc.set_window_data(base)
+		delta = lzxc.compress_continuous(patched)
+
+	hdr_size = sizeof(LZXBOX_BLOCK)
+	hdr = LZXBOX_BLOCK.from_buffer_copy(delta[:hdr_size])
+	try:
+		with LZXDecompression(window_size=0x8000) as lzxd:
+			restored = lzxd.delta_decompress(base, delta[hdr_size:hdr_size + hdr.CompressedSize], hdr.UncompressedSize)
+		assert restored == patched, "Delta round trip mismatch!"
+	except AssertionError as e:
+		print(f"delta          FAILED: {e}")
+		print()
+		print("The LZX-DELTA *compression* path does not work with the binaries in")
+		print("bin/LZX: inserting a dictionary suppresses the group header that the")
+		print("decoder always reads, so the stream they emit cannot be decoded.")
+		print("Decompressing delta streams produced elsewhere is unaffected.")
+		print("Point LZX_COMPRESSION_DLL / LZX_DECOMPRESSION_DLL at a fixed build.")
+		return 1
+
+	print(f"delta          0x{len(patched):X} -> 0x{hdr.CompressedSize:X} against a 0x{len(base):X} dictionary  OK")
 
 	print("Done!")
 
@@ -649,5 +760,11 @@ if __name__ == "__main__":
 
 __all__ = [
 	"LZXCompression",
-	"LZXDecompression"
+	"LZXDecompression",
+	"LZXBOX_BLOCK",
+	"LDI_CONTEXT",
+	"LCI_CONTEXT",
+	"t_decoder_context",
+	"t_decoder_context_legacy",
+	"t_encoder_context"
 ]
